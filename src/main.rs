@@ -1,5 +1,6 @@
 #![windows_subsystem = "console"]
 
+#[cfg(all(target_os = "windows", target_env = "msvc"))]
 use core::{
     arch::asm,
     ptr::{null, null_mut},
