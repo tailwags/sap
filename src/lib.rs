@@ -1,9 +1,17 @@
-#![no_std]
-#![feature(unchecked_math)]
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), feature(unchecked_math))]
 // #![deny(unsafe_op_in_unsafe_fn)]
 
+#[cfg(not(feature = "std"))]
 use core::{
     ffi::{c_char, c_int, CStr},
+    ptr::null,
+};
+
+#[cfg(feature = "std")]
+use std::{
+    ffi::CStr,
+    os::raw::{c_char, c_int},
     ptr::null,
 };
 
@@ -51,9 +59,15 @@ impl Iterator for Args {
 
 impl ExactSizeIterator for Args {
     fn len(&self) -> usize {
-        // self.end as usize - self.next as usize
-        // FIXME: Requires stabilization of unchecked_math. see rust-lang/rust#85122
-        unsafe { (self.end as usize).unchecked_sub(self.next as usize) }
+        #[cfg(feature = "std")]
+        {
+            self.end as usize - self.next as usize
+        }
+        #[cfg(not(feature = "std"))]
+        unsafe {
+            // FIXME: Requires stabilization of unchecked_math. see rust-lang/rust#85122
+            (self.end as usize).unchecked_sub(self.next as usize)
+        }
     }
 }
 
