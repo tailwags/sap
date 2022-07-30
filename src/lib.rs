@@ -88,3 +88,22 @@ pub fn args() -> Args {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+
+    use std::ffi::{OsStr, OsString};
+    use std::os::unix::ffi::OsStrExt;
+
+    use super::args;
+
+    #[test]
+    fn args_matches_std() {
+        let std_args: Vec<OsString> = std::env::args_os().collect();
+        let args: Vec<OsString> = args()
+            .map(|arg| OsStr::from_bytes(arg.to_bytes()).to_os_string())
+            .collect();
+
+        assert_eq!(std_args, args)
+    }
+}
