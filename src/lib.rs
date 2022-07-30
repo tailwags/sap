@@ -106,15 +106,17 @@ pub fn args() -> Args {
 #[cfg(test)]
 mod test {
 
-    use std::ffi::{OsStr, OsString};
-    use std::os::unix::ffi::OsStrExt;
-
-    use super::args;
-
+    // FIXME: This test isn't very good because we can't actually pass additional parameters.
+    #[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
     #[test]
     fn args_matches_std() {
+        use std::{
+            ffi::{OsStr, OsString},
+            os::unix::ffi::OsStrExt,
+        };
+
         let std_args: Vec<OsString> = std::env::args_os().collect();
-        let args: Vec<OsString> = args()
+        let args: Vec<OsString> = crate::args()
             .map(|arg| OsStr::from_bytes(arg.to_bytes()).to_os_string())
             .collect();
 
