@@ -78,7 +78,7 @@ static ARGV_INIT_ARRAY: extern "C" fn(c_int, *const *const c_char, *const *const
     init_wrapper
 };
 
-#[must_use]
+// #[must_use]
 pub fn args() -> Args {
     unsafe {
         if ARGV.is_null() {
