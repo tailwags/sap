@@ -1,4 +1,6 @@
+#![no_std]
 #![feature(unchecked_math)]
+// #![deny(unsafe_op_in_unsafe_fn)]
 
 use core::{
     ffi::{c_char, c_int, CStr},
