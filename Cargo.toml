@@ -17,6 +17,3 @@ lto = true
 codegen-units = 1
 strip = true
 # panic = "abort"
-
-[package.metadata.cross.target.x86_64-pc-windows-msvc]
-image = "ghcr.io/cross-rs/x86_64-pc-windows-msvc-cross:local"
