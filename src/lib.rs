@@ -4,12 +4,12 @@
 
 #[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
 mod unix;
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
+#[cfg(all(target_os = "windows"))]
 mod win32;
 
 #[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
 pub use unix::*;
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
+#[cfg(all(target_os = "windows"))]
 pub use win32::*;
 
 #[cfg(test)]
@@ -30,7 +30,7 @@ mod test {
                     .collect()
             }
 
-            #[cfg(all(target_os = "windows", target_env = "msvc"))]
+            #[cfg(all(target_os = "windows"))]
             {
                 use std::os::windows::ffi::OsStringExt;
 
