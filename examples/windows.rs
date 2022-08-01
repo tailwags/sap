@@ -1,21 +1,15 @@
 #![windows_subsystem = "console"]
 
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
-use core::{
-    arch::asm,
-    ptr::{null, null_mut},
-};
+use std::ffi::OsString;
+use std::os::windows::ffi::OsStringExt;
 
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
-use windows::{
-    core::PWSTR,
-    Win32::System::{LibraryLoader::GetModuleFileNameW, Threading::PEB},
-};
+use sap::args_windows;
 
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
-static mut ARGS: PWSTR = PWSTR(null_mut());
+use core::{arch::asm, ptr::null_mut};
+use windows::{core::PWSTR, Win32::System::Threading::PEB};
 
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
+static mut COMMAND_LINE_BUFFER: PWSTR = PWSTR(null_mut());
+
 #[used]
 #[link_section = ".CRT$XCU"]
 static ARGS_INIT: extern "C" fn() = {
@@ -29,29 +23,27 @@ static ARGS_INIT: extern "C" fn() = {
             );
         }
 
-        unsafe { ARGS = (*(*peb).ProcessParameters).CommandLine.Buffer }
+        unsafe { COMMAND_LINE_BUFFER = (*(*peb).ProcessParameters).CommandLine.Buffer }
     }
     init_args
 };
 
 fn main() {
-    for argument in std::env::args_os() {
-        println!("{argument:?}");
-    }
+    let args: Vec<OsString> = std::env::args_os().collect();
 
-    for arg in sap::args() {
-        dbg!(arg);
-    }
+    dbg!(args);
 
-    #[cfg(all(target_os = "windows", target_env = "msvc"))]
     unsafe {
-        if !ARGS.is_null() {
-            dbg!(ARGS.to_string().unwrap());
+        if !COMMAND_LINE_BUFFER.is_null() {
+            let args: Vec<OsString> = args_windows().map(|arg| OsString::from_wide(arg)).collect();
+
+            dbg!(args);
+
+            for arg in args_windows() {
+                dbg!(OsString::from_wide(arg));
+            }
+
+            dbg!(COMMAND_LINE_BUFFER.to_string());
         }
-
-        let mut buf = [0u16; 512];
-        GetModuleFileNameW(None, &mut buf);
-
-        dbg!(PWSTR::from_raw(buf.as_mut_ptr()).to_string().unwrap());
     }
 }
