@@ -141,7 +141,6 @@ pub fn args_windows() -> win32::Args<'static> {
 mod test {
 
     // FIXME: This test isn't very good because we can't actually pass additional parameters.
-    #[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
     #[test]
     fn args_matches_std() {
         use std::{
@@ -150,9 +149,21 @@ mod test {
         };
 
         let std_args: Vec<OsString> = std::env::args_os().collect();
-        let args: Vec<OsString> = crate::args()
-            .map(|arg| OsStr::from_bytes(arg.to_bytes()).to_os_string())
-            .collect();
+        let args: Vec<OsString> = {
+            #[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
+            {
+                crate::args()
+                    .map(|arg| OsStr::from_bytes(arg.to_bytes()).to_os_string())
+                    .collect()
+            }
+
+            #[cfg(all(target_os = "windows", target_env = "msvc"))]
+            {
+                crate::args_windows()
+                    .map(|arg| OsString::from_wide(arg))
+                    .collect()
+            }
+        };
 
         assert_eq!(std_args, args)
     }
