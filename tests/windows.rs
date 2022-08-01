@@ -1,6 +1,6 @@
-#![cfg(target = "windows")]
+#![cfg(target_os = "windows")]
 
-use sap::win32::Args;
+use sap::ArgsWindows;
 use std::{
     ffi::OsString,
     os::windows::ffi::{OsStrExt, OsStringExt},
@@ -9,7 +9,7 @@ use std::{
 fn chk(string: &str, parts: &[&str]) {
     let mut wide: Vec<u16> = OsString::from(string).encode_wide().collect();
     wide.push(0);
-    let parsed: Vec<OsString> = unsafe { Args::new(&wide) }
+    let parsed: Vec<OsString> = unsafe { ArgsWindows::new(&wide) }
         .map(|arg| OsString::from_wide(arg))
         .collect();
 
