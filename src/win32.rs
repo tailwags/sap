@@ -50,7 +50,11 @@ impl<'a> Iterator for ArgsWindows<'a> {
         if self.index >= self.code_units.len() {
             return None;
         }
-
+        /*
+        FIXME: This whole logic relies on the first argument always being between 2 quotes.
+        This should always apply when reading them from the PEB argument but I am not actually certain.
+        Also what happens if a path contains a quote in the name?
+        */
         if self.first {
             self.first = false;
 
@@ -59,6 +63,7 @@ impl<'a> Iterator for ArgsWindows<'a> {
 
             for point in self.code_units {
                 match *point {
+                    // FIXME: This might not actually be true
                     // A quote mark always toggles `quoted` no matter what because
                     // there are no escape characters when parsing the executable name.
                     QUOTE => quoted = !quoted,
@@ -78,10 +83,6 @@ impl<'a> Iterator for ArgsWindows<'a> {
 
             return Some(&self.code_units[1..index - 1]);
         }
-
-        // dbg!(self.index);
-        // dbg!(self.code_units[self.index] as u8 as char);
-        // dbg!(OsString::from_wide(&self.code_units[self.index..]));
 
         let mut quoted = false;
         let initial_index = self.index;
