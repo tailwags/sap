@@ -220,7 +220,7 @@ static ARGS_INIT: extern "C" fn() = {
     init_args
 };
 
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
+#[cfg(all(target_os = "windows"))]
 pub fn args_windows() -> ArgsWindows<'static> {
     if unsafe { COMMAND_LINE_BUFFER.is_null() } {
         ArgsWindows::empty()
