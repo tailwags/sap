@@ -8,7 +8,6 @@ use std::{
 
 fn chk(string: &str, parts: &[&str]) {
     let mut wide: Vec<u16> = OsString::from(string).encode_wide().collect();
-    wide.push(0);
     let parsed: Vec<OsString> = unsafe { ArgsWindows::new(&wide) }
         .map(|arg| OsString::from_wide(arg))
         .collect();
@@ -115,4 +114,10 @@ fn post_2008() {
         r#"EXE """"Call Me Ishmael"" b c"#,
         &["EXE", r#""Call"#, "Me", "Ishmael", "b", "c"],
     );
+}
+
+#[test]
+fn only_exe_quoted() {
+    chk(r#""EXE" one_word"#, &["EXE", "one_word"]);
+    chk(r#""EXE" a b c"#, &["EXE", "a", "b", "c"]);
 }
