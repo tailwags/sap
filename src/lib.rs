@@ -17,15 +17,14 @@ mod test {
     // FIXME: This test isn't very good because we can't actually pass additional parameters.
     #[test]
     fn args_matches_std() {
-        use std::{
-            ffi::{OsStr, OsString},
-            os::unix::ffi::OsStrExt,
-        };
+        use std::ffi::{OsStr, OsString};
 
         let std_args: Vec<OsString> = std::env::args_os().collect();
         let args: Vec<OsString> = {
             #[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
             {
+                use std::os::unix::ffi::OsStrExt;
+
                 crate::args()
                     .map(|arg| OsStr::from_bytes(arg.to_bytes()).to_os_string())
                     .collect()
