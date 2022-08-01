@@ -1,3 +1,5 @@
+#![cfg(target = "windows")]
+
 use sap::win32::Args;
 use std::{
     ffi::OsString,
