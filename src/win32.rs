@@ -1,3 +1,6 @@
+use core::{arch::asm, ptr::null_mut};
+use windows::{core::PWSTR, Win32::System::Threading::PEB};
+
 const BACKSLASH: u16 = b'\\' as u16;
 const QUOTE: u16 = b'"' as u16;
 const TAB: u16 = b'\t' as u16;
@@ -193,5 +196,34 @@ impl<'a> Iterator for Args<'a> {
 
         self.index += 1;
         Some(&raw[self.index..final_index])
+    }
+}
+
+static mut COMMAND_LINE_BUFFER: PWSTR = PWSTR(null_mut());
+
+#[used]
+#[link_section = ".CRT$XCU"]
+static ARGS_INIT: extern "C" fn() = {
+    extern "C" fn init_args() {
+        let peb: *mut PEB;
+        unsafe {
+            asm!(
+              "mov {}, gs:[0x60]",
+              out(reg) peb,
+              options(pure, nomem, nostack)
+            );
+        }
+
+        unsafe { COMMAND_LINE_BUFFER = (*(*peb).ProcessParameters).CommandLine.Buffer }
+    }
+    init_args
+};
+
+#[cfg(all(target_os = "windows", target_env = "msvc"))]
+pub fn args_windows() -> win32::Args<'static> {
+    if unsafe { COMMAND_LINE_BUFFER.is_null() } {
+        win32::Args::empty()
+    } else {
+        unsafe { win32::Args::new(COMMAND_LINE_BUFFER.as_wide()) }
     }
 }
