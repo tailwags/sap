@@ -15,6 +15,8 @@ use std::{
     ptr::null,
 };
 
+pub mod win32;
+
 pub struct Args {
     next: *const *const c_char,
     end: *const *const c_char,
@@ -100,6 +102,38 @@ pub fn args() -> Args {
         } else {
             Args::new(ARGC, ARGV)
         }
+    }
+}
+
+#[cfg(all(target_os = "windows", target_env = "msvc"))]
+pub fn args_windows() -> win32::Args<'static> {
+    use core::{arch::asm, ptr::null_mut};
+    use windows::{core::PWSTR, Win32::System::Threading::PEB};
+
+    static mut COMMAND_LINE_BUFFER: PWSTR = PWSTR(null_mut());
+
+    #[used]
+    #[link_section = ".CRT$XCU"]
+    static ARGS_INIT: extern "C" fn() = {
+        extern "C" fn init_args() {
+            let peb: *mut PEB;
+            unsafe {
+                asm!(
+                  "mov {}, gs:[0x60]",
+                  out(reg) peb,
+                  options(pure, nomem, nostack)
+                );
+            }
+
+            unsafe { COMMAND_LINE_BUFFER = (*(*peb).ProcessParameters).CommandLine.Buffer }
+        }
+        init_args
+    };
+
+    if unsafe { COMMAND_LINE_BUFFER.is_null() } {
+        win32::Args::empty()
+    } else {
+        unsafe { win32::Args::new(COMMAND_LINE_BUFFER.as_wide()) }
     }
 }
 
