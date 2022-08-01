@@ -6,13 +6,13 @@ const QUOTE: u16 = b'"' as u16;
 const TAB: u16 = b'\t' as u16;
 const SPACE: u16 = b' ' as u16;
 
-pub struct Args<'a> {
+pub struct ArgsWindows<'a> {
     code_units: &'a [u16],
     first: bool,
     index: usize,
 }
 
-impl<'a> Args<'a> {
+impl<'a> ArgsWindows<'a> {
     /// # Safety
     /// TODO
     pub const unsafe fn new(code_units: &'a [u16]) -> Self {
@@ -42,7 +42,7 @@ impl<'a> Args<'a> {
     }
 }
 
-impl<'a> Iterator for Args<'a> {
+impl<'a> Iterator for ArgsWindows<'a> {
     type Item = &'a [u16];
 
     // FIXME: This whole implentation relays on windows giving us the correct args, not sure how to make it better.
@@ -220,10 +220,10 @@ static ARGS_INIT: extern "C" fn() = {
 };
 
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
-pub fn args_windows() -> win32::Args<'static> {
+pub fn args_windows() -> ArgsWindows<'static> {
     if unsafe { COMMAND_LINE_BUFFER.is_null() } {
-        win32::Args::empty()
+        ArgsWindows::empty()
     } else {
-        unsafe { win32::Args::new(COMMAND_LINE_BUFFER.as_wide()) }
+        unsafe { ArgsWindows::new(COMMAND_LINE_BUFFER.as_wide()) }
     }
 }
