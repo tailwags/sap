@@ -21,7 +21,6 @@ fn chk(string: &str, parts: &[&str]) {
     assert_eq!(parsed.as_slice(), expected.as_slice(), "{:?}", string);
 }
 
-
 // We don't care about this test. Having empty args should be considered a bug.
 // #[test]
 // fn empty() {
