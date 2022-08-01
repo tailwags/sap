@@ -32,6 +32,8 @@ mod test {
 
             #[cfg(all(target_os = "windows", target_env = "msvc"))]
             {
+                use std::os::windows::ffi::OsStringExt;
+
                 crate::args_windows()
                     .map(|arg| OsString::from_wide(arg))
                     .collect()
