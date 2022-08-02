@@ -70,8 +70,13 @@ impl ExactSizeIterator for Args {
 static mut ARGC: c_int = 0;
 static mut ARGV: *const *const c_char = null();
 
-#[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
+#[cfg(any(
+    all(target_os = "linux", target_env = "gnu"),
+    target_os = "macos",
+    target_os = "freebsd"
+))]
 #[cfg_attr(target_os = "linux", link_section = ".init_array")]
+#[cfg_attr(target_os = "freebsd", link_section = ".init_array")]
 #[cfg_attr(target_os = "macos", link_section = "__DATA,__mod_init_func")]
 #[used]
 static ARGV_INIT_ARRAY: extern "C" fn(c_int, *const *const c_char, *const *const c_char) = {

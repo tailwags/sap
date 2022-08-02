@@ -2,12 +2,20 @@
 #![cfg_attr(not(feature = "std"), feature(unchecked_math))]
 // #![deny(unsafe_op_in_unsafe_fn)]
 
-#[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
+#[cfg(any(
+    all(target_os = "linux", target_env = "gnu"),
+    target_os = "macos",
+    target_os = "freebsd"
+))]
 mod unix;
 #[cfg(all(target_os = "windows"))]
 mod win32;
 
-#[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
+#[cfg(any(
+    all(target_os = "linux", target_env = "gnu"),
+    target_os = "macos",
+    target_os = "freebsd"
+))]
 pub use unix::*;
 #[cfg(all(target_os = "windows"))]
 pub use win32::*;
@@ -21,7 +29,11 @@ mod test {
 
         let std_args: Vec<OsString> = std::env::args_os().collect();
         let args: Vec<OsString> = {
-            #[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
+            #[cfg(any(
+                all(target_os = "linux", target_env = "gnu"),
+                target_os = "macos",
+                target_os = "freebsd"
+            ))]
             {
                 use std::os::unix::ffi::OsStrExt;
 
