@@ -10,7 +10,6 @@ task:
     - curl https://sh.rustup.rs -sSf --output rustup.sh
     - sh rustup.sh --default-toolchain stable -y --profile=minimal
     - . $HOME/.cargo/env
-  build_script: cargo build
   test_script:
     - . $HOME/.cargo/env
     - cargo test
