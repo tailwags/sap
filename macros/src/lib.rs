@@ -8,10 +8,5 @@ pub fn utf16_string(tokens: TokenStream) -> TokenStream {
 
     let utf16_encoded: Vec<u16> = literal.encode_utf16().collect();
 
-    quote! {
-        {
-            [#(#utf16_encoded),*]
-        }
-    }
-    .into()
+    quote! {[#(#utf16_encoded),*]}.into()
 }
