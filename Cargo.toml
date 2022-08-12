@@ -21,6 +21,9 @@ std = []
 windows = { version = "0.39.0", features = ["Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_Foundation", "Win32_System_Kernel"] }
 sap_macros = { version = "0.1.0-alpha.1", path = "./macros" }
 
+[dependencies]
+static_args = "0.1.0-alpha.1"
+
 [dev-dependencies]
 libc = { version = "0.2.126", default-features = false }
 
