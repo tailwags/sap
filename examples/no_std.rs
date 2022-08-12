@@ -9,7 +9,7 @@
 pub extern "C" fn main() -> isize {
     for arg in sap::args() {
         unsafe {
-            libc::printf("%s\n\0".as_ptr().cast(), arg.as_ptr());
+            libc::printf("%s\n".as_ptr().cast(), arg.as_ptr());
         }
     }
 
@@ -20,8 +20,13 @@ pub extern "C" fn main() -> isize {
 
 #[cfg(not(feature = "std"))]
 #[panic_handler]
-fn panic(_panic_info: &core::panic::PanicInfo) -> ! {
-    loop {}
+fn panic(_: &core::panic::PanicInfo) -> ! {
+    extern "Rust" {
+        #[link_name = "\nerror(panic-never): your program contains at least one panicking branch"]
+        fn undefined() -> !;
+    }
+
+    unsafe { undefined() }
 }
 
 #[cfg(not(feature = "std"))]
