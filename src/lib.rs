@@ -1,17 +1,17 @@
 use std::{ffi::OsString, fmt::Debug, os::unix::prelude::OsStrExt};
 
 pub enum Error {
-    UnexpectedArgument,
-    MissingArgument,
-    MissingValue,
+    UnexpectedArgument(&'static str),
+    MissingArgument(&'static str),
+    MissingValue(&'static str),
 }
 
 impl Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnexpectedArgument => write!(f, "Unexpected argument"),
-            Self::MissingArgument => write!(f, "Missing argument"),
-            Self::MissingValue => write!(f, "Missing Value"),
+            Self::UnexpectedArgument(arg) => write!(f, "Found unexpected argument \"{arg}\""),
+            Self::MissingArgument(arg) => write!(f, "\"{arg}\" argument required but not supplied"),
+            Self::MissingValue(arg) => write!(f, "No value supplied to \"{arg}\""),
         }
     }
 }
