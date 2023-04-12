@@ -3,6 +3,7 @@ use std::{ffi::OsString, fmt::Debug, os::unix::prelude::OsStrExt};
 pub enum Error {
     UnexpectedArgument,
     MissingArgument,
+    MissingValue,
 }
 
 impl Debug for Error {
@@ -10,6 +11,7 @@ impl Debug for Error {
         match self {
             Self::UnexpectedArgument => write!(f, "Unexpected argument"),
             Self::MissingArgument => write!(f, "Missing argument"),
+            Self::MissingValue => write!(f, "Missing Value"),
         }
     }
 }
