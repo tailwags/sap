@@ -1,4 +1,8 @@
-use std::{ffi::OsString, fmt::Debug, os::unix::prelude::OsStrExt};
+use std::{
+    ffi::{OsStr, OsString},
+    fmt::Debug,
+    os::unix::prelude::OsStrExt,
+};
 
 pub enum Error {
     UnexpectedArgument(String),
@@ -29,6 +33,14 @@ impl<'a> Arg<'a> {
             Some(value)
         } else {
             None
+        }
+    }
+
+    pub fn to_string_lossy(self) -> String {
+        match self {
+            Arg::Short(short) => OsStr::from_bytes(short).to_string_lossy().into_owned(),
+            Arg::Long(long) => OsStr::from_bytes(long).to_string_lossy().into_owned(),
+            Arg::Value(value) => value.to_string_lossy().into_owned(),
         }
     }
 }
