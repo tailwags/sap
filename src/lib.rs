@@ -103,39 +103,3 @@ impl Iterator for Args {
         self.inner.next().map(Arg::new)
     }
 }
-
-// #[cfg(test)]
-// mod test {
-//     // FIXME: This test isn't very good because we can't actually pass additional parameters.
-//     #[test]
-//     fn args_matches_std() {
-//         use std::ffi::{OsStr, OsString};
-
-//         let std_args: Vec<OsString> = std::env::args_os().collect();
-//         let args: Vec<OsString> = {
-//             #[cfg(any(
-//                 all(target_os = "linux", target_env = "gnu"),
-//                 target_os = "macos",
-//                 target_os = "freebsd"
-//             ))]
-//             {
-//                 use std::os::unix::ffi::OsStrExt;
-
-//                 crate::args()
-//                     .map(|arg| OsStr::from_bytes(arg.to_bytes()).to_os_string())
-//                     .collect()
-//             }
-
-//             #[cfg(all(target_os = "windows"))]
-//             {
-//                 use std::os::windows::ffi::OsStringExt;
-
-//                 crate::args_windows()
-//                     .map(|arg| OsString::from_wide(arg))
-//                     .collect()
-//             }
-//         };
-
-//         assert_eq!(std_args, args)
-//     }
-// }
