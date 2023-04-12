@@ -13,9 +13,5 @@ readme = "README.md"
 documentation = "https://docs.rs/sap"
 include = ["src/**/*.rs", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
 
-[features]
-default = ["std"]
-std = []
-
 [dependencies]
 sap_macros = { version = "0.1.0-alpha.1", path = "./macros" }
