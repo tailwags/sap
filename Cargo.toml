@@ -6,12 +6,12 @@ name = "sap"
 version = "0.1.0-alpha.1"
 edition = "2021"
 description = "Straightforward Argument Parser"
-license = "MIT OR Apache-2.0"
+license = "MIT OR Apache-2.0 OR Zlib"
 authors = ["Federico Maria Morrone <contact@morrone.dev>"]
 repository = "https://github.com/morr0ne/sap"
 readme = "README.md"
 documentation = "https://docs.rs/sap"
-include = ["src/**/*.rs", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
+include = ["src/**/*.rs", "README.md", "LICENSE-APACHE", "LICENSE-MIT", "LICENSE-ZLIB"]
 
 [dependencies]
 sap_macros = { version = "0.1.0-alpha.1", path = "./macros" }
