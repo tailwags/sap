@@ -19,9 +19,3 @@ std = []
 
 [dependencies]
 sap_macros = { version = "0.1.0-alpha.1", path = "./macros" }
-
-[profile.release]
-lto = true
-codegen-units = 1
-strip = true
-panic = "abort"
