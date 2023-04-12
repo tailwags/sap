@@ -1,7 +1,7 @@
 use std::{ffi::OsString, fmt::Debug, os::unix::prelude::OsStrExt};
 
 pub enum Error {
-    UnexpectedArgument(&'static str),
+    UnexpectedArgument(String),
     MissingArgument(&'static str),
     MissingValue(&'static str),
 }
