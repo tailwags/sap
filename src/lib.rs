@@ -10,7 +10,7 @@ impl Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnexpectedArgument(arg) => write!(f, "Found unexpected argument \"{arg}\""),
-            Self::MissingArgument(arg) => write!(f, "\"{arg}\" argument required but not supplied"),
+            Self::MissingArgument(arg) => write!(f, "Argument \"{arg}\" required but not supplied"),
             Self::MissingValue(arg) => write!(f, "No value supplied to \"{arg}\""),
         }
     }
