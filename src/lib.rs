@@ -5,7 +5,7 @@ use std::{
 };
 
 pub enum Error {
-    UnexpectedArgument(String),
+    UnexpectedArgument(OsString),
     MissingArgument(&'static str),
     MissingValue(&'static str),
 }
@@ -13,50 +13,31 @@ pub enum Error {
 impl Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnexpectedArgument(arg) => write!(f, "Found unexpected argument \"{arg}\""),
+            Self::UnexpectedArgument(arg) => {
+                write!(f, "Found unexpected argument \"{}\"", arg.to_string_lossy())
+            }
             Self::MissingArgument(arg) => write!(f, "Argument \"{arg}\" required but not supplied"),
             Self::MissingValue(arg) => write!(f, "No value supplied to \"{arg}\""),
         }
     }
 }
 
-#[derive(Debug)]
-pub enum Arg<'a> {
-    Short(&'a [u8]),
-    Long(&'a [u8]),
-    Value(OsString),
+pub trait Arg {
+    fn is_value(&self) -> bool;
 }
 
-impl<'a> Arg<'a> {
-    pub fn expect_value(self) -> Option<OsString> {
-        if let Self::Value(value) = self {
-            Some(value)
-        } else {
-            None
-        }
-    }
-
-    pub fn to_string_lossy(self) -> String {
-        match self {
-            Arg::Short(short) => OsStr::from_bytes(short).to_string_lossy().into_owned(),
-            Arg::Long(long) => OsStr::from_bytes(long).to_string_lossy().into_owned(),
-            Arg::Value(value) => value.to_string_lossy().into_owned(),
-        }
+impl<T: AsRef<OsStr>> Arg for T {
+    #[inline]
+    fn is_value(&self) -> bool {
+        !self.as_ref().as_bytes().starts_with(b"-")
     }
 }
 
-pub trait ParseArg {
-    fn parse(&self) -> Arg;
-}
+pub trait Parser: Sized {
+    const HELP: &'static str;
+    const VERSION: &'static str;
 
-impl ParseArg for OsString {
-    fn parse(&self) -> Arg {
-        if let Some(arg) = self.as_bytes().strip_prefix(b"--") {
-            Arg::Long(arg)
-        } else if let Some(arg) = self.as_bytes().strip_prefix(b"-") {
-            Arg::Short(arg)
-        } else {
-            Arg::Value(self.to_os_string())
-        }
-    }
+    fn parse<I>(args: I) -> Result<Self, Error>
+    where
+        I: IntoIterator<Item = OsString>;
 }
