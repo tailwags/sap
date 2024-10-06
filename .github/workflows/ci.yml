@@ -1,21 +1,24 @@
-name: CI
+name: ci
+on: [push, pull_request]
 
-on:
-  push:
-  pull_request:
+env:
+  RUSTFLAGS: "-Dwarnings"
 
 jobs:
   test:
-    name: Run test on ${{matrix.os}} with rust ${{matrix.rust}}
-    runs-on: ${{matrix.os}}-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        rust: [stable, beta, nightly]
-        os: [ubuntu, macos, windows]
+    name: Build and test
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{matrix.rust}}
-      - run: cargo test
+      - uses: actions/checkout@v4
+
+      - name: Setup rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Install nextest to run tests
+        uses: taiki-e/install-action@nextest
+
+      - name: Run tests
+        run: cargo nextest run --all-features
+
+      - name: Check clippy
+        run: cargo clippy --all-targets --all-features
