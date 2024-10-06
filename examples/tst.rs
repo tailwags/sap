@@ -7,6 +7,7 @@ use std::{
 use sap::{Arg, Error, Parser};
 
 #[derive(Debug)]
+#[allow(unused)]
 struct Args {
     normal: OsString,
     utf8: String,

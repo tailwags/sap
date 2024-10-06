@@ -77,6 +77,6 @@ pub fn parser(input: TokenStream) -> TokenStream {
     .into()
 }
 
-fn generate_help(input: &DeriveInput) -> String {
+fn generate_help(_input: &DeriveInput) -> String {
     "This is a sample generated help message\n".to_string()
 }

@@ -4,10 +4,11 @@ use std::{
     os::unix::prelude::OsStrExt,
 };
 
-use sap::{Arg, Error};
+use sap::Error;
 use sap_macros::Parser;
 
 #[derive(Debug, Parser)]
+#[allow(unused)]
 struct Args {
     normal: OsString,
     utf8: String,
