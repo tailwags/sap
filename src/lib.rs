@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     ffi::{OsStr, OsString},
     fmt::Debug,
     os::unix::prelude::OsStrExt,
@@ -30,12 +31,18 @@ impl Debug for Error {
 
 pub trait Arg {
     fn is_value(&self) -> bool;
+    fn to_utf8(&self) -> Cow<'_, str>;
 }
 
 impl<T: AsRef<OsStr>> Arg for T {
     #[inline]
     fn is_value(&self) -> bool {
         !self.as_ref().as_bytes().starts_with(b"-")
+    }
+
+    #[inline]
+    fn to_utf8(&self) -> Cow<'_, str> {
+        self.as_ref().to_string_lossy()
     }
 }
 
@@ -46,9 +53,20 @@ pub fn get_value<T: Arg, V: From<T>>(
 ) -> Result<Option<V>, Error> {
     match val {
         Some(arg) if arg.is_value() => Ok(Some(arg.into())),
-        _ => return Err(Error::MissingValue(name)),
+        _ => Err(Error::MissingValue(name)),
     }
 }
+
+// #[inline]
+// pub fn get_value_utf8<T: Arg, V: From<String>>(
+//     val: Option<T>,
+//     name: &'static str,
+// ) -> Result<Option<V>, Error> {
+//     match val {
+//         Some(arg) if arg.is_value() => Ok(Some(arg.into())),
+//         _ => return Err(Error::MissingValue(name)),
+//     }
+// }
 
 pub trait Parser: Sized {
     const HELP: &'static str;
