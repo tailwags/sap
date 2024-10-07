@@ -2,6 +2,7 @@ use std::{
     ffi::OsString,
     io::{stdout, Write},
     os::unix::prelude::OsStrExt,
+    path::PathBuf,
 };
 
 use sap::{Arg, Error, Parser};
@@ -11,6 +12,7 @@ use sap::{Arg, Error, Parser};
 struct Args {
     normal: OsString,
     utf8: String,
+    path: PathBuf,
     flag: bool,
     optional: Option<OsString>,
     multiple: Vec<OsString>,
@@ -28,6 +30,7 @@ impl Parser for Args {
 
         let mut normal = None;
         let mut utf8 = None;
+        let mut path = None;
         let mut flag = false;
         let mut optional = None;
         let mut multiple = None;
@@ -42,18 +45,13 @@ impl Parser for Args {
                     let _ = stdout().write_all(Self::VERSION.as_bytes());
                     ::std::process::exit(0);
                 }
-                b"--normal" => match args.next() {
-                    Some(arg) if arg.is_value() => normal = Some(arg),
-                    _ => return Err(Error::MissingValue("--normal")),
-                },
-                b"--optional" => match args.next() {
-                    Some(arg) if arg.is_value() => optional = Some(arg),
-                    _ => return Err(Error::MissingValue("--optional")),
-                },
+                b"--normal" => normal = sap::get_value(args.next(), "--normal")?,
+                b"--optional" => optional = sap::get_value(args.next(), "--optional")?,
                 b"--utf8" => match args.next() {
                     Some(arg) if arg.is_value() => utf8 = Some(arg.to_string_lossy().into_owned()),
                     _ => return Err(Error::MissingValue("--utf8")),
                 },
+                b"--path" => path = sap::get_value(args.next(), "--path")?,
                 b"--flag" => flag = true,
                 b"--multiple" => {
                     let mut container = Vec::new();
@@ -64,13 +62,14 @@ impl Parser for Args {
 
                     multiple = Some(container)
                 }
-                _ => return Err(Error::UnexpectedArgument(arg.to_os_string())),
+                _ => return Err(Error::UnexpectedArgument(arg)),
             }
         }
 
         Ok(Self {
             normal: normal.ok_or(Error::MissingArgument("--normal"))?,
             utf8: utf8.ok_or(Error::MissingArgument("--utf8"))?,
+            path: path.ok_or(Error::MissingArgument("--path"))?,
             flag,
             optional,
             multiple: multiple.ok_or(Error::MissingArgument("--multiple"))?,

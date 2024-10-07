@@ -4,9 +4,15 @@ use std::{
     os::unix::prelude::OsStrExt,
 };
 
+pub use sap_macros::Parser;
+
+#[derive(thiserror::Error)]
 pub enum Error {
+    #[error("")]
     UnexpectedArgument(OsString),
+    #[error("")]
     MissingArgument(&'static str),
+    #[error("")]
     MissingValue(&'static str),
 }
 
@@ -30,6 +36,17 @@ impl<T: AsRef<OsStr>> Arg for T {
     #[inline]
     fn is_value(&self) -> bool {
         !self.as_ref().as_bytes().starts_with(b"-")
+    }
+}
+
+#[inline]
+pub fn get_value<T: Arg, V: From<T>>(
+    val: Option<T>,
+    name: &'static str,
+) -> Result<Option<V>, Error> {
+    match val {
+        Some(arg) if arg.is_value() => Ok(Some(arg.into())),
+        _ => return Err(Error::MissingValue(name)),
     }
 }
 

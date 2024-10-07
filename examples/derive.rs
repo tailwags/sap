@@ -1,11 +1,6 @@
-use std::{
-    ffi::OsString,
-    io::{stdout, Write},
-    os::unix::prelude::OsStrExt,
-};
-
-use sap::Error;
-use sap_macros::Parser;
+use anyhow::Result;
+use sap::Parser;
+use std::ffi::OsString;
 
 #[derive(Debug, Parser)]
 #[allow(unused)]
@@ -17,7 +12,7 @@ struct Args {
     multiple: Vec<OsString>,
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<()> {
     let args = Args::try_parse(std::env::args_os().skip(1))?;
 
     dbg!(args);
