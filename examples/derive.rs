@@ -18,7 +18,7 @@ struct Args {
 }
 
 fn main() -> Result<(), Error> {
-    let args = Args::parse(std::env::args_os().skip(1))?;
+    let args = Args::try_parse(std::env::args_os().skip(1))?;
 
     dbg!(args);
 

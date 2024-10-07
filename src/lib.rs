@@ -37,7 +37,7 @@ pub trait Parser: Sized {
     const HELP: &'static str;
     const VERSION: &'static str;
 
-    fn parse<I>(args: I) -> Result<Self, Error>
+    fn try_parse<I>(args: I) -> Result<Self, Error>
     where
         I: IntoIterator<Item = OsString>;
 }

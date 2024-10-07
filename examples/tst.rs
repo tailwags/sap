@@ -20,7 +20,7 @@ impl Parser for Args {
     const HELP: &'static str = "help\n";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    fn parse<I>(args: I) -> Result<Self, Error>
+    fn try_parse<I>(args: I) -> Result<Self, Error>
     where
         I: IntoIterator<Item = OsString>,
     {
@@ -79,7 +79,7 @@ impl Parser for Args {
 }
 
 fn main() -> Result<(), Error> {
-    let args = Args::parse(std::env::args_os().skip(1))?;
+    let args = Args::try_parse(std::env::args_os().skip(1))?;
 
     dbg!(args);
 

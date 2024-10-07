@@ -14,7 +14,7 @@ pub fn parser(input: TokenStream) -> TokenStream {
             const HELP: &'static str = #help;
             const VERSION: &'static str = #version;
         
-            fn parse<I>(args: I) -> ::std::result::Result<Self, Error>
+            fn try_parse<I>(args: I) -> ::std::result::Result<Self, Error>
             where
                 I: IntoIterator<Item = ::std::ffi::OsString>,
             {
