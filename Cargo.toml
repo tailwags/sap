@@ -21,7 +21,7 @@ panic = "abort"
 
 [dependencies]
 sap_macros = { version = "0.1.0-alpha.1", path = "./macros" }
-thiserror = "1.0.64"
+thiserror = "2.0.12"
 
 [dev-dependencies]
-anyhow = "1.0.89"
+anyhow = "1.0.97"
