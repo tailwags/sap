@@ -1,6 +1,6 @@
 use std::{
     ffi::OsString,
-    io::{stdout, Write},
+    io::{Write, stdout},
     os::unix::prelude::OsStrExt,
     path::PathBuf,
 };

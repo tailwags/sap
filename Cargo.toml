@@ -4,7 +4,7 @@ members = ["macros"]
 [package]
 name = "sap"
 version = "0.1.0-alpha.1"
-edition = "2021"
+edition = "2024"
 description = "Small Argument Parser"
 license = "Apache-2.0"
 authors = ["Matilde Morrone <contact@morrone.dev>"]
