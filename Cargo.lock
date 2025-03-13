@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "sap"
-version = "0.1.0-alpha.1"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "sap_macros",
