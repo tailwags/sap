@@ -303,14 +303,14 @@ impl Display for ParsingError {
             Self::InvalidOption { reason, offender } => {
                 let reserve = writeln!(f, "reason: {reason}");
                 if let Some(sentence) = offender {
-                    return writeln!(f, "at: {sentence:#?}");
+                    return writeln!(f, "at: {}", sentence.display());
                 }
 
                 reserve
             }
 
             Self::UnconsumedValue { value } => {
-                writeln!(f, "leftover value: {value:#?}")
+                writeln!(f, "leftover value: {}", value.display())
             }
 
             Self::UnexpectedArg {
