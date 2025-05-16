@@ -1,13 +1,16 @@
+#![warn(clippy::pedantic)]
+#![warn(clippy::complexity)]
 //! Sap - a Small Argument Parser
 //!
 //! The only upside (currently) is being very minimal.
 //!
 //! Unix only.
 
+use core::str;
 use std::{
     env,
     error::Error,
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     fmt::{Debug, Display},
     mem,
     os::unix::ffi::{OsStrExt, OsStringExt},
@@ -20,7 +23,7 @@ type Result<T> = core::result::Result<T, ParsingError>;
 pub enum Argument<'a> {
     /// Represents an long option like
     /// `--example`.
-    Long(&'a OsStr),
+    Long(&'a str),
 
     /// Represets a singular character
     /// option, as in: `-q`
@@ -28,7 +31,45 @@ pub enum Argument<'a> {
 
     /// Regular argument
     /// like `/proc/meminfo`
-    Lonely(&'a OsStr),
+    Lonely(&'a str),
+}
+
+impl<'a> Argument<'a> {
+    pub fn into_error<A>(self, value: A) -> ParsingError
+    where
+        A: Into<Option<&'a str>>,
+    {
+        use Argument::{Lonely, Long, Short};
+
+        match self {
+            Long(arg) => ParsingError::UnexpectedArg {
+                offender: arg.to_string(),
+                value: value.into().map(String::from),
+                format: "=",
+
+                prefix: "--",
+            },
+
+            Short(arg) => ParsingError::UnexpectedArg {
+                offender: arg.to_string(),
+                value: value.into().map(String::from),
+
+                // cheap trick
+                // omit it one day.
+                format: " ",
+
+                prefix: "-",
+            },
+
+            Lonely(arg) => ParsingError::UnexpectedArg {
+                offender: arg.to_string(),
+                value: None,
+                format: "",
+
+                prefix: "",
+            },
+        }
+    }
 }
 
 enum State {
@@ -124,14 +165,19 @@ where
                     self.state = State::LeftoverValue(OsString::from_vec(val.to_vec()));
                 }
 
-                // Safety:
-                //
-                // We are on Unix, where `OsString`s are C strings
-                // which are made of ASCII characters.
-                // therefore this string will be always correct
-                // because it is created from another `OsString`
-                let os_str_arg = unsafe { OsStr::from_encoded_bytes_unchecked(arg) };
-                Some(Ok(Argument::Long(os_str_arg)))
+                // might not be needed
+                // however the user
+                // can be as bright as Proxima Centauri
+                // or as dark as Sagittarius A
+                let str_arg = match str::from_utf8(arg) {
+                    Err(_e) => {
+                        let err = ParsingError::InvalidString;
+
+                        return Some(Err(err));
+                    }
+                    Ok(val) => val,
+                };
+                Some(Ok(Argument::Long(str_arg)))
 
             // Short option.
             } else {
@@ -151,12 +197,24 @@ where
                     // lonely `-`
                     // probably an error on the user's part
                     // but syntatically correct.
-                    Some(Ok(Argument::Lonely(OsStr::new("-"))))
+                    Some(Ok(Argument::Lonely("-")))
                 }
             }
         } else {
+            // might not be needed,
+            // however i am not sure of the user's
+            // eternal glory and shine
+            let str_arg = match str::from_utf8(arg.as_encoded_bytes()) {
+                Err(_e) => {
+                    let err = ParsingError::InvalidString;
+
+                    return Some(Err(err));
+                }
+                Ok(val) => val,
+            };
+
             // lonely value
-            Some(Ok(Argument::Lonely(arg)))
+            Some(Ok(Argument::Lonely(str_arg)))
         }
     }
 
@@ -196,15 +254,32 @@ struct ParserIter<I: Iterator<Item = OsString>> {
 /// and/or be induced to fail.
 #[derive(Debug)]
 pub enum ParsingError {
+    /// Something was wrong with a provided option.
     InvalidOption {
         reason: &'static str,
         offender: Option<OsString>,
     },
-    UnconsumedValue {
-        value: OsString,
-    },
+
+    /// The value left after processing a long option
+    /// was not consumed.
+    UnconsumedValue { value: OsString },
+
+    /// The initial iterator was empty.
     Empty,
+
+    /// The string is invalid.
     InvalidString,
+
+    /// This error is not used by the parser,
+    /// however it is there to let users
+    /// create errors from
+    /// arguments that they deem unexpected
+    UnexpectedArg {
+        offender: String,
+        value: Option<String>,
+        format: &'static str,
+        prefix: &'static str,
+    },
 }
 
 impl Display for ParsingError {
@@ -223,6 +298,21 @@ impl Display for ParsingError {
                 writeln!(f, "leftover value: {value:#?}")
             }
 
+            Self::UnexpectedArg {
+                offender,
+                value,
+                format,
+                prefix,
+            } => match value {
+                Some(val) => {
+                    writeln!(f, "unexpected argument: {prefix}{offender}{format}{val}")
+                }
+
+                None => {
+                    writeln!(f, "unexpected argument: {prefix}{offender}")
+                }
+            },
+
             Self::Empty => writeln!(f, "env variables were empty"),
 
             Self::InvalidString => writeln!(f, "attempt to parse invalid utf-8"),
@@ -240,6 +330,8 @@ impl Error for ParsingError {
             Self::Empty => "env variables were empty",
 
             Self::InvalidString => "attempt to parse invalid utf-8",
+
+            Self::UnexpectedArg { .. } => "an unexpected argument was passed",
         }
     }
 }
@@ -331,15 +423,14 @@ fn split_long_opt_value(src: &[u8]) -> (&[u8], Option<&[u8]>) {
 
 #[cfg(test)]
 mod tests {
-
     macro_rules! test_cmdline {
         ($arr: expr) => {
             $arr.into_iter().map(|x| OsString::from(x))
         };
     }
-    use std::ffi::{OsStr, OsString};
 
     use crate::{Argument::*, arbitrary_parser};
+    use std::ffi::OsString;
 
     #[test]
     fn basic() {
@@ -353,15 +444,9 @@ mod tests {
         assert_eq!(parser.forward().unwrap().unwrap(), Short('o'));
         assert_eq!(parser.forward().unwrap().unwrap(), Short('w'));
 
-        assert_eq!(
-            parser.forward().unwrap().unwrap(),
-            Long(OsStr::new("awrff"))
-        );
+        assert_eq!(parser.forward().unwrap().unwrap(), Long("awrff"));
         assert_eq!(parser.val(), Some(OsString::from("puppy")));
-        assert_eq!(
-            parser.forward().unwrap().unwrap(),
-            Lonely(OsStr::new("value"))
-        );
+        assert_eq!(parser.forward().unwrap().unwrap(), Lonely("value"));
     }
 
     #[test]
@@ -376,5 +461,15 @@ mod tests {
         assert_eq!(parser.forward().unwrap().unwrap(), Short('s'));
 
         assert!(parser.forward().unwrap().is_err());
+    }
+
+    #[test]
+    fn argument_to_error() {
+        let arg = Long("example");
+
+        assert_eq!(
+            arg.into_error("examplevalue").to_string(),
+            "unexpected argument: --example=examplevalue\n"
+        );
     }
 }
