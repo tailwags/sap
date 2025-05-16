@@ -219,8 +219,9 @@ where
     }
 
     /// Retrieves the value stored in the Parser
+    /// without converting it to a UTF-8 string.
     /// not retrieving this value becomes an error.
-    pub fn val(&mut self) -> Option<OsString> {
+    pub fn val_raw(&mut self) -> Option<OsString> {
         match self.state {
             State::LeftoverValue(_) => match mem::replace(&mut self.state, State::NotInteresting) {
                 State::LeftoverValue(val) => Some(val),
@@ -231,10 +232,24 @@ where
         }
     }
 
+    /// Retrieves the value
+    /// returns `Some` if the data could be converted
+    /// to valid Unicode else returns `None`,
+    /// however even if it returns `None`, the value is consumed.
+    ///
+    /// This operation currently might be expensive.
+    pub fn val_utf8(&mut self) -> Option<String> {
+        match self.val_raw() {
+            Some(str) => str.into_string().ok(),
+
+            None => None,
+        }
+    }
+
     /// Ignore the value
     /// to not error out the parser
     pub fn ignore_val(&mut self) {
-        let _value = self.val();
+        let _value = self.val_raw();
     }
 
     /// Retrieve the name of the process
@@ -445,7 +460,7 @@ mod tests {
         assert_eq!(parser.forward().unwrap().unwrap(), Short('w'));
 
         assert_eq!(parser.forward().unwrap().unwrap(), Long("awrff"));
-        assert_eq!(parser.val(), Some(OsString::from("puppy")));
+        assert!(parser.val_utf8().unwrap() == "puppy");
         assert_eq!(parser.forward().unwrap().unwrap(), Lonely("value"));
     }
 
