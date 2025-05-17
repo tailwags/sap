@@ -105,7 +105,7 @@ impl Parser<env::ArgsOs> {
     }
 }
 
-impl<'a, I> Parser<I> {
+impl<I> Parser<I> {
     /// Creates a `Parser` from any iterator that yields `OsString` items.
     ///
     /// # Errors
