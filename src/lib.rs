@@ -369,21 +369,7 @@ impl Display for ParsingError {
     }
 }
 
-impl Error for ParsingError {
-    fn description(&self) -> &str {
-        match self {
-            Self::InvalidOption { .. } => "an invalid option was given to the command line",
-
-            Self::UnconsumedValue { .. } => "a value was left unprocessed, after retrieval",
-
-            Self::Empty => "env variables were empty",
-
-            Self::InvalidString => "attempt to parse invalid utf-8",
-
-            Self::UnexpectedArg { .. } => "an unexpected argument was passed",
-        }
-    }
-}
+impl Error for ParsingError {}
 
 // Splits a long option like
 // `--option=value`
