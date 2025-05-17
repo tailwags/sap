@@ -105,17 +105,18 @@ impl Parser<env::ArgsOs> {
     }
 }
 
-impl<I> Parser<I>
-where
-    I: Iterator<Item = OsString>,
-{
+impl<'a, I> Parser<I> {
     /// Creates a `Parser` from any iterator that yields `OsString` items.
     ///
     /// # Errors
     ///
     /// Returns an error if the iterator is empty or the first item (program name)
     /// can't be converted to a valid UTF-8 string.
-    pub fn from_arbitrary(mut iter: I) -> Result<Parser<I>> {
+    pub fn from_arbitrary(iter: I) -> Result<Parser<<I as IntoIterator>::IntoIter>>
+    where
+        I: IntoIterator<Item = OsString>,
+    {
+        let mut iter = iter.into_iter();
         let name = match iter.next() {
             None => {
                 let err = ParsingError::Empty;
@@ -136,7 +137,12 @@ where
             name,
         })
     }
+}
 
+impl<I> Parser<I>
+where
+    I: Iterator<Item = OsString>,
+{
     /// Moves to the next argument, parsing it into an `Argument` enum.
     ///
     /// # Returns
@@ -144,6 +150,14 @@ where
     /// - `Some(Ok(arg))` - Successfully parsed the next argument
     /// - `Some(Err(e))` - Found an argument but encountered an error parsing it
     /// - `None` - No more arguments or reached `--` separator
+    ///
+    /// # Errors
+    ///
+    /// The parser returns an `Err` when the
+    /// argument's data was either itself invalid
+    /// (malformed UTF-8 for example) or when it was in an
+    /// invalid state, such as `-abc=value`
+    /// (here it's invalid for multiple short options to take in a value)
     pub fn forward(&mut self) -> Result<Option<Argument<'_>>> {
         if matches!(self.state, State::End) {
             return Ok(None);
@@ -298,12 +312,6 @@ where
     pub fn name(&self) -> &str {
         &self.name
     }
-}
-
-// TODO: Make this a nice iterator too!
-#[allow(dead_code)]
-struct ParserIter<I: Iterator<Item = OsString>> {
-    inner: Parser<I>,
 }
 
 /// Parsing error types with descriptive messages
