@@ -99,7 +99,7 @@ impl Parser<env::ArgsOs> {
     ///
     /// # Errors
     ///
-    /// See from_iter for details
+    /// See `from_arbitrary` for details
     pub fn from_env() -> Result<Self> {
         Self::from_arbitrary(env::args_os())
     }
@@ -277,10 +277,7 @@ where
 
     /// Retrieves the value. This performs lossy conversion if the vlaue is not valid utf8
     pub fn value(&mut self) -> Option<String> {
-        match self.raw_value() {
-            Some(v) => Some(v.to_string_lossy().into_owned()),
-            None => None,
-        }
+        self.raw_value().map(|v| v.to_string_lossy().into_owned())
     }
 
     /// Ignore the value
