@@ -101,7 +101,7 @@ impl Parser<env::ArgsOs> {
     ///
     /// See from_iter for details
     pub fn from_env() -> Result<Self> {
-        Self::from_iter(env::args_os())
+        Self::from_arbitrary(env::args_os())
     }
 }
 
@@ -118,7 +118,7 @@ where
     /// if it contains the first value (the process name),
     /// if it does not contain it and/or the value is malformed
     /// the function will return `Err`
-    pub fn from_iter(mut iter: I) -> Result<Parser<I>> {
+    pub fn from_arbitrary(mut iter: I) -> Result<Parser<I>> {
         let name = match iter.next() {
             None => {
                 let err = ParsingError::Empty;
@@ -424,7 +424,7 @@ mod tests {
     fn basic() {
         let content = test_cmdline!(["testbin", "-meow", "--awrff=puppy", "value"]);
 
-        let mut parser = Parser::from_iter(content).unwrap();
+        let mut parser = Parser::from_arbitrary(content).unwrap();
 
         assert_eq!(parser.name(), "testbin");
         assert_eq!(parser.forward().unwrap().unwrap(), Short('m'));
@@ -441,7 +441,7 @@ mod tests {
     fn simple_error() {
         let content = test_cmdline!(["bin", "-this=wrong"]);
 
-        let mut parser = Parser::from_iter(content).unwrap();
+        let mut parser = Parser::from_arbitrary(content).unwrap();
 
         assert_eq!(parser.forward().unwrap().unwrap(), Short('t'));
         assert_eq!(parser.forward().unwrap().unwrap(), Short('h'));
