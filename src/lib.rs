@@ -93,10 +93,54 @@ pub struct Parser<I> {
     name: String,
 }
 
+impl Parser<env::ArgsOs> {
+    /// Creates a `Parser` using the `ArgsOs` iterator
+    /// provided by the standard library.
+    ///
+    /// # Errors
+    ///
+    /// See from_iter for details
+    pub fn from_env() -> Result<Self> {
+        Self::from_iter(env::args_os())
+    }
+}
+
 impl<I> Parser<I>
 where
     I: Iterator<Item = OsString>,
 {
+    /// Creates a `Parser` from an arbitrary `Iterator` with
+    /// `Item` as `OsString`.
+    ///
+    /// # Errors
+    ///
+    /// At creation it checks the created `Iterator`
+    /// if it contains the first value (the process name),
+    /// if it does not contain it and/or the value is malformed
+    /// the function will return `Err`
+    pub fn from_iter(mut iter: I) -> Result<Parser<I>> {
+        let name = match iter.next() {
+            None => {
+                let err = ParsingError::Empty;
+
+                return Err(err);
+            }
+            Some(val) => match val.into_string() {
+                Ok(str) => str,
+                Err(_e) => return Err(ParsingError::InvalidString),
+            },
+        };
+
+        Ok(Parser {
+            iter,
+            state: State::NotInteresting,
+
+            last_short: None,
+            last_long: None,
+            name,
+        })
+    }
+
     /// Moves the parser one option forward
     /// if it hits a `--`, it will start returning `None`
     ///
@@ -350,70 +394,6 @@ impl Error for ParsingError {
     }
 }
 
-/// Creates a `Parser` using the `ArgsOs` iterator
-/// provided by the standard library.
-///
-/// # Errors
-///
-/// At creation it checks the created `Iterator`
-/// if it contains the first value (the process name),
-/// if it does not contain it and/or the value is malformed
-/// the function will return `Err`
-pub fn parser_from_env() -> Result<Parser<env::ArgsOs>> {
-    let mut iter = env::args_os();
-    let name = match iter.next() {
-        None => {
-            let err = ParsingError::Empty;
-
-            return Err(err);
-        }
-        Some(val) => match val.into_string() {
-            Ok(str) => str,
-            Err(_e) => return Err(ParsingError::InvalidString),
-        },
-    };
-    Ok(Parser {
-        iter,
-        state: State::NotInteresting,
-
-        last_short: None,
-        last_long: None,
-        name,
-    })
-}
-
-/// Creates a `Parser` from an arbitrary `Iterator` with
-/// `Item` as `OsString`.
-///
-/// # Errors
-///
-/// Same quirks happen as with `parser_from_env`
-pub fn arbitrary_parser<I>(mut iter: I) -> Result<Parser<I>>
-where
-    I: Iterator<Item = OsString>,
-{
-    let name = match iter.next() {
-        None => {
-            let err = ParsingError::Empty;
-
-            return Err(err);
-        }
-        Some(val) => match val.into_string() {
-            Ok(str) => str,
-            Err(_e) => return Err(ParsingError::InvalidString),
-        },
-    };
-
-    Ok(Parser {
-        iter,
-        state: State::NotInteresting,
-
-        last_short: None,
-        last_long: None,
-        name,
-    })
-}
-
 // Splits a long option like
 // `--option=value`
 // into (b"option", Some(b"value"))
@@ -443,14 +423,14 @@ mod tests {
         };
     }
 
-    use crate::{Argument::*, arbitrary_parser};
+    use crate::{Argument::*, Parser};
     use std::ffi::OsString;
 
     #[test]
     fn basic() {
         let content = test_cmdline!(["testbin", "-meow", "--awrff=puppy", "value"]);
 
-        let mut parser = arbitrary_parser(content).unwrap();
+        let mut parser = Parser::from_iter(content).unwrap();
 
         assert_eq!(parser.name(), "testbin");
         assert_eq!(parser.forward().unwrap().unwrap(), Short('m'));
@@ -467,7 +447,7 @@ mod tests {
     fn simple_error() {
         let content = test_cmdline!(["bin", "-this=wrong"]);
 
-        let mut parser = arbitrary_parser(content).unwrap();
+        let mut parser = Parser::from_iter(content).unwrap();
 
         assert_eq!(parser.forward().unwrap().unwrap(), Short('t'));
         assert_eq!(parser.forward().unwrap().unwrap(), Short('h'));
