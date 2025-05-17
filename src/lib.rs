@@ -144,13 +144,13 @@ where
     /// - `Some(Ok(arg))` - Successfully parsed the next argument
     /// - `Some(Err(e))` - Found an argument but encountered an error parsing it
     /// - `None` - No more arguments or reached `--` separator
-    pub fn forward(&mut self) -> Option<Result<Argument<'_>>> {
+    pub fn forward(&mut self) -> Result<Option<Argument<'_>>> {
         if matches!(self.state, State::End) {
-            return None;
+            return Ok(None);
         }
 
         match self.state {
-            State::End => return None,
+            State::End => return Ok(None),
             State::Combined(ref mut pos, ref str) => match str.as_bytes().get(*pos) {
                 None => {
                     self.state = State::NotInteresting;
@@ -163,12 +163,12 @@ where
                         offender: None,
                     };
 
-                    return Some(Err(err));
+                    return Err(err);
                 }
 
                 Some(ch) => {
                     *pos += 1;
-                    return Some(Ok(Argument::Short(*ch as char)));
+                    return Ok(Some(Argument::Short(*ch as char)));
                 }
             },
 
@@ -176,7 +176,7 @@ where
         }
 
         let arg = match self.iter.next() {
-            None => return None,
+            None => return Ok(None),
             Some(arg) => {
                 self.last_long = Some(arg);
                 // Safety:
@@ -190,7 +190,7 @@ where
 
         if *arg == "--" {
             self.state = State::End;
-            return None;
+            return Ok(None);
         }
 
         let bytes = arg.as_bytes();
@@ -211,11 +211,11 @@ where
                 let str_arg = match str::from_utf8(arg) {
                     Err(_e) => {
                         let err = ParsingError::InvalidString;
-                        return Some(Err(err));
+                        return Err(err);
                     }
                     Ok(val) => val,
                 };
-                Some(Ok(Argument::Long(str_arg)))
+                Ok(Some(Argument::Long(str_arg)))
 
             // Short option.
             } else {
@@ -230,12 +230,12 @@ where
                     }
 
                     self.last_short = Some(char);
-                    Some(Ok(Argument::Short(char)))
+                    Ok(Some(Argument::Short(char)))
                 } else {
                     // lonely `-`
                     // probably an error on the user's part
                     // but syntatically correct.
-                    Some(Ok(Argument::Value("-")))
+                    Ok(Some(Argument::Value("-")))
                 }
             }
         } else {
@@ -245,13 +245,13 @@ where
             let str_arg = match str::from_utf8(arg.as_encoded_bytes()) {
                 Err(_e) => {
                     let err = ParsingError::InvalidString;
-                    return Some(Err(err));
+                    return Err(err);
                 }
                 Ok(val) => val,
             };
 
             // lonely value
-            Some(Ok(Argument::Value(str_arg)))
+            Ok(Some(Argument::Value(str_arg)))
         }
     }
 
@@ -433,7 +433,7 @@ mod tests {
         assert_eq!(parser.forward().unwrap().unwrap(), Short('i'));
         assert_eq!(parser.forward().unwrap().unwrap(), Short('s'));
 
-        assert!(parser.forward().unwrap().is_err());
+        assert!(parser.forward().is_err());
     }
 
     #[test]
