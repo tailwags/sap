@@ -1,10 +1,15 @@
 #![warn(clippy::pedantic)]
 #![warn(clippy::complexity)]
-//! Sap - a Small Argument Parser
+//! # Sap - a Small Argument Parser
 //!
-//! The only upside (currently) is being very minimal.
+//! A minimal Unix command-line argument parser with zero dependencies.
 //!
-//! Unix only.
+//! ## Features
+//!
+//! - Parse short options (`-a`, `-b`), long options (`--verbose`), and option values
+//! - Combined short options (`-abc` = `-a -b -c`)
+//! - Support for option values (`--name=value`)
+//! - Error handling with descriptive messages
 
 use std::{
     env,
@@ -15,25 +20,24 @@ use std::{
     os::unix::ffi::{OsStrExt, OsStringExt},
 };
 
+/// Result type specific to Sap, using `ParsingError` as the default error type
 pub type Result<T, E = ParsingError> = core::result::Result<T, E>;
 
 /// Represents a command-line argument
 #[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Clone, Copy)]
 pub enum Argument<'a> {
-    /// Represents an long option like
-    /// `--example`.
+    /// A long option like `--example`
     Long(&'a str),
 
-    /// Represets a singular character
-    /// option, as in: `-q`
+    /// A single character option like `-q`
     Short(char),
 
-    /// Regular argument
-    /// like `/proc/meminfo`
+    /// A positional argument like `file.txt` or `/path/to/file`
     Value(&'a str),
 }
 
 impl<'a> Argument<'a> {
+    /// Converts this argument into an error, optionally with a value
     pub fn into_error<A>(self, value: A) -> ParsingError
     where
         A: Into<Option<&'a str>>,
@@ -45,18 +49,13 @@ impl<'a> Argument<'a> {
                 offender: arg.to_string(),
                 value: value.into().map(String::from),
                 format: "=",
-
                 prefix: "--",
             },
 
             Short(arg) => ParsingError::UnexpectedArg {
                 offender: arg.to_string(),
                 value: value.into().map(String::from),
-
-                // cheap trick
-                // omit it one day.
                 format: " ",
-
                 prefix: "-",
             },
 
@@ -64,24 +63,25 @@ impl<'a> Argument<'a> {
                 offender: arg.to_string(),
                 value: None,
                 format: "",
-
                 prefix: "",
             },
         }
     }
 }
 
+/// Internal parser state
 enum State {
+    /// Normal state, no special processing needed
     NotInteresting,
+    /// Contains a value from previous option
     LeftoverValue(OsString),
+    /// Combined short options state (-abc)
     Combined(usize, OsString),
+    /// End of arguments (after --)
     End,
 }
 
-/// Parser of the command-line arguments
-/// internally uses the `ArgsOs` iterator
-/// when created via the `parser_from_env`
-/// function.
+/// Parser for command-line arguments
 pub struct Parser<I> {
     iter: I,
     state: State,
@@ -94,12 +94,12 @@ pub struct Parser<I> {
 }
 
 impl Parser<env::ArgsOs> {
-    /// Creates a `Parser` using the `ArgsOs` iterator
-    /// provided by the standard library.
+    /// Creates a `Parser` using the program's command-line arguments.
     ///
     /// # Errors
     ///
-    /// See `from_arbitrary` for details
+    /// Returns an error if no arguments are available or the program name
+    /// contains invalid UTF-8.
     pub fn from_env() -> Result<Self> {
         Self::from_arbitrary(env::args_os())
     }
@@ -109,20 +109,16 @@ impl<I> Parser<I>
 where
     I: Iterator<Item = OsString>,
 {
-    /// Creates a `Parser` from an arbitrary `Iterator` with
-    /// `Item` as `OsString`.
+    /// Creates a `Parser` from any iterator that yields `OsString` items.
     ///
     /// # Errors
     ///
-    /// At creation it checks the created `Iterator`
-    /// if it contains the first value (the process name),
-    /// if it does not contain it and/or the value is malformed
-    /// the function will return `Err`
+    /// Returns an error if the iterator is empty or the first item (program name)
+    /// can't be converted to a valid UTF-8 string.
     pub fn from_arbitrary(mut iter: I) -> Result<Parser<I>> {
         let name = match iter.next() {
             None => {
                 let err = ParsingError::Empty;
-
                 return Err(err);
             }
             Some(val) => match val.into_string() {
@@ -141,10 +137,13 @@ where
         })
     }
 
-    /// Moves the parser one option forward
-    /// if it hits a `--`, it will start returning `None`
+    /// Moves to the next argument, parsing it into an `Argument` enum.
     ///
-    /// This happens because `--` signifies the end of arguments.
+    /// # Returns
+    ///
+    /// - `Some(Ok(arg))` - Successfully parsed the next argument
+    /// - `Some(Err(e))` - Found an argument but encountered an error parsing it
+    /// - `None` - No more arguments or reached `--` separator
     pub fn forward(&mut self) -> Option<Result<Argument<'_>>> {
         if matches!(self.state, State::End) {
             return None;
@@ -155,7 +154,6 @@ where
             State::Combined(ref mut pos, ref str) => match str.as_bytes().get(*pos) {
                 None => {
                     self.state = State::NotInteresting;
-
                     return self.forward();
                 }
 
@@ -170,7 +168,6 @@ where
 
                 Some(ch) => {
                     *pos += 1;
-
                     return Some(Ok(Argument::Short(*ch as char)));
                 }
             },
@@ -182,7 +179,6 @@ where
             None => return None,
             Some(arg) => {
                 self.last_long = Some(arg);
-
                 // Safety:
                 //
                 // We just placed the value in the variable
@@ -215,7 +211,6 @@ where
                 let str_arg = match str::from_utf8(arg) {
                     Err(_e) => {
                         let err = ParsingError::InvalidString;
-
                         return Some(Err(err));
                     }
                     Ok(val) => val,
@@ -250,7 +245,6 @@ where
             let str_arg = match str::from_utf8(arg.as_encoded_bytes()) {
                 Err(_e) => {
                     let err = ParsingError::InvalidString;
-
                     return Some(Err(err));
                 }
                 Ok(val) => val,
@@ -261,9 +255,14 @@ where
         }
     }
 
-    /// Retrieves the value stored in the Parser
-    /// without converting it to a UTF-8 string.
-    /// not retrieving this value becomes an error.
+    /// Retrieves the value associated with the previous option.
+    ///
+    /// Returns the raw `OsString` value without UTF-8 conversion.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(value)` - The option has a value (e.g., `--name=value`)
+    /// - `None` - The option has no value or the value has already been consumed
     pub fn raw_value(&mut self) -> Option<OsString> {
         match self.state {
             State::LeftoverValue(_) => match mem::replace(&mut self.state, State::NotInteresting) {
@@ -275,18 +274,27 @@ where
         }
     }
 
-    /// Retrieves the value. This performs lossy conversion if the vlaue is not valid utf8
+    /// Retrieves the value associated with the previous option as a UTF-8 string.
+    ///
+    /// Performs lossy UTF-8 conversion if the value contains invalid UTF-8.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(value)` - The option has a value (e.g., `--name=value`)
+    /// - `None` - The option has no value or the value has already been consumed
     pub fn value(&mut self) -> Option<String> {
         self.raw_value().map(|v| v.to_string_lossy().into_owned())
     }
 
-    /// Ignore the value
-    /// to not error out the parser
+    /// Ignores any value associated with the current option.
+    ///
+    /// Call this when you want to acknowledge but discard a value
+    /// without causing an error.
     pub fn ignore_value(&mut self) {
         let _ = self.raw_value();
     }
 
-    /// Retrieve the name of the process
+    /// Returns the program name (first argument).
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -298,31 +306,25 @@ struct ParserIter<I: Iterator<Item = OsString>> {
     inner: Parser<I>,
 }
 
-/// Error type describing the various ways
-/// this algorithm can fail
-/// and/or be induced to fail.
+/// Parsing error types with descriptive messages
 #[derive(Debug)]
 pub enum ParsingError {
-    /// Something was wrong with a provided option.
+    /// Invalid option syntax or format
     InvalidOption {
         reason: &'static str,
         offender: Option<OsString>,
     },
 
-    /// The value left after processing a long option
-    /// was not consumed.
+    /// A value was provided but not consumed by calling `value()` or `ignore_value()`
     UnconsumedValue { value: OsString },
 
-    /// The initial iterator was empty.
+    /// The arguments iterator was empty (no program name)
     Empty,
 
-    /// The string is invalid.
+    /// A string containing invalid UTF-8 was encountered
     InvalidString,
 
-    /// This error is not used by the parser,
-    /// however it is there to let users
-    /// create errors from
-    /// arguments that they deem unexpected
+    /// An unexpected or unrecognized argument was provided
     UnexpectedArg {
         offender: String,
         value: Option<String>,
