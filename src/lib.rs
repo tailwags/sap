@@ -30,7 +30,7 @@ pub enum Argument<'a> {
 
     /// Regular argument
     /// like `/proc/meminfo`
-    Lonely(&'a str),
+    Value(&'a str),
 }
 
 impl<'a> Argument<'a> {
@@ -38,7 +38,7 @@ impl<'a> Argument<'a> {
     where
         A: Into<Option<&'a str>>,
     {
-        use Argument::{Lonely, Long, Short};
+        use Argument::{Long, Short, Value};
 
         match self {
             Long(arg) => ParsingError::UnexpectedArg {
@@ -60,7 +60,7 @@ impl<'a> Argument<'a> {
                 prefix: "-",
             },
 
-            Lonely(arg) => ParsingError::UnexpectedArg {
+            Value(arg) => ParsingError::UnexpectedArg {
                 offender: arg.to_string(),
                 value: None,
                 format: "",
@@ -240,7 +240,7 @@ where
                     // lonely `-`
                     // probably an error on the user's part
                     // but syntatically correct.
-                    Some(Ok(Argument::Lonely("-")))
+                    Some(Ok(Argument::Value("-")))
                 }
             }
         } else {
@@ -257,7 +257,7 @@ where
             };
 
             // lonely value
-            Some(Ok(Argument::Lonely(str_arg)))
+            Some(Ok(Argument::Value(str_arg)))
         }
     }
 
@@ -440,7 +440,7 @@ mod tests {
 
         assert_eq!(parser.forward().unwrap().unwrap(), Long("awrff"));
         assert!(parser.val_utf8().unwrap() == "puppy");
-        assert_eq!(parser.forward().unwrap().unwrap(), Lonely("value"));
+        assert_eq!(parser.forward().unwrap().unwrap(), Value("value"));
     }
 
     #[test]
