@@ -6,7 +6,6 @@
 //!
 //! Unix only.
 
-use core::str;
 use std::{
     env,
     error::Error,
@@ -16,7 +15,7 @@ use std::{
     os::unix::ffi::{OsStrExt, OsStringExt},
 };
 
-type Result<T> = core::result::Result<T, ParsingError>;
+pub type Result<T, E = ParsingError> = core::result::Result<T, E>;
 
 /// Represents a command-line argument
 #[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Clone, Copy)]
