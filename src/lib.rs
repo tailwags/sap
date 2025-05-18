@@ -82,7 +82,7 @@ enum State {
 }
 
 /// Parser for command-line arguments
-pub struct Parser<I> {
+pub struct Parser<I: Iterator> {
     iter: I,
     state: State,
 
@@ -105,16 +105,19 @@ impl Parser<env::ArgsOs> {
     }
 }
 
-impl<I> Parser<I> {
+impl<I> Parser<I>
+where
+    I: Iterator<Item = OsString>,
+{
     /// Creates a `Parser` from any iterator that yields `OsString` items.
     ///
     /// # Errors
     ///
     /// Returns an error if the iterator is empty or the first item (program name)
     /// can't be converted to a valid UTF-8 string.
-    pub fn from_arbitrary(iter: I) -> Result<Parser<<I as IntoIterator>::IntoIter>>
+    pub fn from_arbitrary<A>(iter: A) -> Result<Parser<I>>
     where
-        I: IntoIterator<Item = OsString>,
+        A: IntoIterator<IntoIter = I>,
     {
         let mut iter = iter.into_iter();
         let name = match iter.next() {
@@ -124,7 +127,7 @@ impl<I> Parser<I> {
             }
             Some(val) => match val.into_string() {
                 Ok(str) => str,
-                Err(_e) => return Err(ParsingError::InvalidString),
+                Err(_) => return Err(ParsingError::InvalidString),
             },
         };
 
@@ -137,12 +140,7 @@ impl<I> Parser<I> {
             name,
         })
     }
-}
 
-impl<I> Parser<I>
-where
-    I: Iterator<Item = OsString>,
-{
     /// Moves to the next argument, parsing it into an `Argument` enum.
     ///
     /// # Returns
@@ -158,7 +156,10 @@ where
     /// (malformed UTF-8 for example) or when it was in an
     /// invalid state, such as `-abc=value`
     /// (here it's invalid for multiple short options to take in a value)
-    pub fn forward(&mut self) -> Result<Option<Argument<'_>>> {
+    pub fn forward<'a, 'b>(&'a mut self) -> Result<Option<Argument<'b>>>
+    where
+        'a: 'b,
+    {
         if matches!(self.state, State::End) {
             return Ok(None);
         }
@@ -312,6 +313,11 @@ where
     pub fn name(&self) -> &str {
         &self.name
     }
+
+    /// Returns the inner iterator.
+    pub fn into_inner(self) -> I {
+        self.iter
+    }
 }
 
 /// Parsing error types with descriptive messages
@@ -450,7 +456,18 @@ mod tests {
 
         assert_eq!(
             arg.into_error("examplevalue").to_string(),
-            "unexpected argument: --example=examplevalue\n"
+            "unexpected argument: --example=examplevalue"
         );
+    }
+
+    #[test]
+    fn trailing_values() {
+        let content = test_cmdline!(["testbin", "-meow", "--awrff=puppy", "--", "meow"]);
+
+        let mut parser = Parser::from_arbitrary(content).unwrap();
+
+        while let Some(p) = parser.forward().unwrap() {
+            dbg!(p);
+        }
     }
 }
