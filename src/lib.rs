@@ -345,16 +345,16 @@ impl Display for ParsingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidOption { reason, offender } => {
-                let reserve = writeln!(f, "reason: {reason}");
+                let reserve = write!(f, "reason: {reason}");
                 if let Some(sentence) = offender {
-                    return writeln!(f, "at: {}", sentence.display());
+                    return write!(f, " at: {}", sentence.display());
                 }
 
                 reserve
             }
 
             Self::UnconsumedValue { value } => {
-                writeln!(f, "leftover value: {}", value.display())
+                write!(f, "leftover value: {}", value.display())
             }
 
             Self::UnexpectedArg {
@@ -364,17 +364,17 @@ impl Display for ParsingError {
                 prefix,
             } => match value {
                 Some(val) => {
-                    writeln!(f, "unexpected argument: {prefix}{offender}{format}{val}")
+                    write!(f, "unexpected argument: {prefix}{offender}{format}{val}")
                 }
 
                 None => {
-                    writeln!(f, "unexpected argument: {prefix}{offender}")
+                    write!(f, "unexpected argument: {prefix}{offender}")
                 }
             },
 
-            Self::Empty => writeln!(f, "env variables were empty"),
+            Self::Empty => write!(f, "env variables were empty"),
 
-            Self::InvalidString => writeln!(f, "attempt to parse invalid utf-8"),
+            Self::InvalidString => write!(f, "attempt to parse invalid utf-8"),
         }
     }
 }
