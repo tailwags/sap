@@ -416,38 +416,44 @@ mod tests {
         };
     }
 
-    use crate::{Argument::*, Parser};
+    use crate::{Argument::*, Parser, Result};
     use std::ffi::OsString;
 
     #[test]
-    fn basic() {
+    fn basic() -> Result<()> {
         let content = test_cmdline!(["testbin", "-meow", "--awrff=puppy", "value"]);
 
-        let mut parser = Parser::from_arbitrary(content).unwrap();
+        let mut parser = Parser::from_arbitrary(content)?;
 
         assert_eq!(parser.name(), "testbin");
-        assert_eq!(parser.forward().unwrap().unwrap(), Short('m'));
-        assert_eq!(parser.forward().unwrap().unwrap(), Short('e'));
-        assert_eq!(parser.forward().unwrap().unwrap(), Short('o'));
-        assert_eq!(parser.forward().unwrap().unwrap(), Short('w'));
+        assert_eq!(parser.forward()?, Some(Short('m')));
+        assert_eq!(parser.forward()?, Some(Short('e')));
+        assert_eq!(parser.forward()?, Some(Short('o')));
+        assert_eq!(parser.forward()?, Some(Short('w')));
 
-        assert_eq!(parser.forward().unwrap().unwrap(), Long("awrff"));
-        assert!(parser.value().unwrap() == "puppy");
-        assert_eq!(parser.forward().unwrap().unwrap(), Value("value"));
+        assert_eq!(parser.forward()?, Some(Long("awrff")));
+        assert_eq!(parser.value().as_deref(), Some("puppy"));
+        assert_eq!(parser.forward()?, Some(Value("value")));
+
+        assert!(parser.forward()?.is_none());
+
+        Ok(())
     }
 
     #[test]
-    fn simple_error() {
+    fn simple_error() -> Result<()> {
         let content = test_cmdline!(["bin", "-this=wrong"]);
 
-        let mut parser = Parser::from_arbitrary(content).unwrap();
+        let mut parser = Parser::from_arbitrary(content)?;
 
-        assert_eq!(parser.forward().unwrap().unwrap(), Short('t'));
-        assert_eq!(parser.forward().unwrap().unwrap(), Short('h'));
-        assert_eq!(parser.forward().unwrap().unwrap(), Short('i'));
-        assert_eq!(parser.forward().unwrap().unwrap(), Short('s'));
+        assert_eq!(parser.forward()?, Some(Short('t')));
+        assert_eq!(parser.forward()?, Some(Short('h')));
+        assert_eq!(parser.forward()?, Some(Short('i')));
+        assert_eq!(parser.forward()?, Some(Short('s')));
 
         assert!(parser.forward().is_err());
+
+        Ok(())
     }
 
     #[test]
@@ -461,13 +467,15 @@ mod tests {
     }
 
     #[test]
-    fn trailing_values() {
+    fn trailing_values() -> Result<()> {
         let content = test_cmdline!(["testbin", "-meow", "--awrff=puppy", "--", "meow"]);
 
-        let mut parser = Parser::from_arbitrary(content).unwrap();
+        let mut parser = Parser::from_arbitrary(content)?;
 
-        while let Some(p) = parser.forward().unwrap() {
+        while let Some(p) = parser.forward()? {
             dbg!(p);
         }
+
+        Ok(())
     }
 }
