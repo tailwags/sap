@@ -223,8 +223,8 @@ where
                 // however the user
                 // can be as bright as Proxima Centauri
                 // or as dark as Sagittarius A
-                // TODO: switch to `str::from_utf8` when stabilized
-                // https://github.com/rust-lang/rust/issues/131114
+                //
+                // `str::from_utf8` is stabilised in 1.87.0
                 let str_arg = match core::str::from_utf8(arg) {
                     Err(_e) => {
                         let err = ParsingError::InvalidString;
@@ -259,8 +259,8 @@ where
             // might not be needed,
             // however i am not sure of the user's
             // eternal glory and shine
-            // TODO: switch to `str::from_utf8` when stabilized
-            // https://github.com/rust-lang/rust/issues/131114
+            //
+            // `str::from_utf8` is stabilised in 1.87.0
             let str_arg = match core::str::from_utf8(arg.as_encoded_bytes()) {
                 Err(_e) => {
                     let err = ParsingError::InvalidString;
