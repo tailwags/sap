@@ -224,7 +224,7 @@ where
                 // can be as bright as Proxima Centauri
                 // or as dark as Sagittarius A
                 //
-                // `str::from_utf8` is not stabilised yet
+                // `inherent_str_constructors` is not stabilised yet
                 // https://github.com/rust-lang/rust/issues/131114
                 let str_arg = match core::str::from_utf8(arg) {
                     Err(_e) => {
@@ -261,7 +261,7 @@ where
             // however i am not sure of the user's
             // eternal glory and shine
             //
-            // `str::from_utf8` is not stabilised yet
+            // `inherent_str_constructors` is not stabilised yet
             // https://github.com/rust-lang/rust/issues/131114
             let str_arg = match core::str::from_utf8(arg.as_encoded_bytes()) {
                 Err(_e) => {
