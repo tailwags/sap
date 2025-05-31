@@ -359,14 +359,20 @@ impl Display for ParsingError {
             Self::InvalidOption { reason, offender } => {
                 let reserve = write!(f, "reason: {reason}");
                 if let Some(sentence) = offender {
-                    return write!(f, " at: {}", sentence.display());
+                    // `os_str_display` is stabilised in 1.87.0
+                    // https://github.com/rust-lang/rust/issues/120048
+                    // use `sentence.display()` if you don't care about rust <1.87.0
+                    return write!(f, " at: {}", String::from_utf8_lossy(sentence.as_bytes()));
                 }
 
                 reserve
             }
 
             Self::UnconsumedValue { value } => {
-                write!(f, "leftover value: {}", value.display())
+                // `os_str_display` is stabilised in 1.87.0
+                // https://github.com/rust-lang/rust/issues/120048
+                // use `value.display()` if you don't care about rust <1.87.0
+                write!(f, "leftover value: {}", String::from_utf8_lossy(value.as_bytes()))
             }
 
             Self::UnexpectedArg {
