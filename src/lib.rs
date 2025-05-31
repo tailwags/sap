@@ -264,7 +264,8 @@ where
             //
             // `inherent_str_constructors` is not stabilised yet
             // https://github.com/rust-lang/rust/issues/131114
-            // use `str::from_utf8(arg)` if you don't care about stable rust
+            // use `str::from_utf8(arg.as_encoded_bytes())`
+            // if you don't care about stable rust
             let str_arg = match core::str::from_utf8(arg.as_encoded_bytes()) {
                 Err(_e) => {
                     let err = ParsingError::InvalidString;
