@@ -165,7 +165,6 @@ where
         }
 
         match self.state {
-            State::End => return Ok(None),
             State::Combined(ref mut pos, ref str) => match str.as_bytes().get(*pos) {
                 None => {
                     self.state = State::NotInteresting;
