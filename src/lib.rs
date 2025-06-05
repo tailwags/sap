@@ -164,8 +164,8 @@ where
             return Ok(None);
         }
 
-        match self.state {
-            State::Combined(ref mut pos, ref str) => match str.as_bytes().get(*pos) {
+        if let State::Combined(ref mut pos, ref str) = self.state {
+            match str.as_bytes().get(*pos) {
                 None => {
                     self.state = State::NotInteresting;
                     return self.forward();
@@ -184,9 +184,7 @@ where
                     *pos += 1;
                     return Ok(Some(Argument::Short(*ch as char)));
                 }
-            },
-
-            _ => {}
+            }
         }
 
         let arg = match self.iter.next() {
