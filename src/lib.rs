@@ -412,7 +412,7 @@ where
             }
         }
 
-        return Ok(Some(Argument::Value(arg.into())));
+        Ok(Some(Argument::Value(arg.into())))
     }
 
     /// Retrieves and consumes the value associated with the most recent option.
@@ -865,17 +865,10 @@ mod tests {
     // Edge cases and error conditions
     #[test]
     fn empty_long_option() -> Result<()> {
-        let result = Parser::from_arbitrary(["prog", "--"]);
-        // This should either parse successfully (treating -- as terminator)
-        // or fail depending on implementation
-        match result {
-            Ok(mut parser) => {
-                assert!(parser.forward()?.is_none());
-            }
-            Err(_) => {
-                // Also acceptable behavior
-            }
-        }
+        let mut parser = Parser::from_arbitrary(["prog", "--"])?;
+
+        assert!(parser.forward()?.is_none());
+
         Ok(())
     }
 
@@ -1041,7 +1034,7 @@ mod tests {
             Some(Value(val)) if val == "-b" => {
                 // POSIX-style: -b is treated as operand after first operand
             }
-            other => panic!("Unexpected result: {:?}", other),
+            other => panic!("Unexpected result: {other:?}"),
         }
         Ok(())
     }
@@ -1054,7 +1047,7 @@ mod tests {
 
         // Test with maximum length option names (if your implementation has limits)
         let long_name = "a".repeat(1000);
-        let long_option = format!("--{}", long_name);
+        let long_option = format!("--{long_name}");
         let mut parser2 = Parser::from_arbitrary(["prog", &long_option])?;
         if let Some(Long(name)) = parser2.forward()? {
             assert_eq!(name, long_name);
