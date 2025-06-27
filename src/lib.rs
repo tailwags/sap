@@ -13,7 +13,7 @@
 //! - **Flexible value handling**: Options with values via `--name=value` or separate arguments
 //! - **POSIX compliance**: Handle `--` separator and `-` (stdin) arguments correctly
 //! - **Zero dependencies**: Pure Rust implementation with no external crates
-//! - **Iterator-based**: Works with any `Iterator<Item = String>` for maximum flexibility
+//! - **Iterator-based**: Works with any `Iterator<Item = Into<String>>` for maximum flexibility
 //! - **Comprehensive error handling**: Descriptive error messages for invalid input
 //!
 //! ## Example
