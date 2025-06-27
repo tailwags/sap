@@ -23,7 +23,7 @@ Add Sap to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sap = "0.0.4"
+sap = "0.0.5"
 ```
 
 ## 📖 Usage
