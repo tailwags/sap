@@ -21,8 +21,8 @@
 //! ```rust
 //! use sap::{Parser, Argument};
 //!
-//! let args = vec!["myprogram".to_string(), "-v".to_string(), "--file=input.txt".to_string()];
-//! let mut parser = Parser::from_arbitrary(args).unwrap();
+//! // Parse from string arrays directly - no need to convert to String first!
+//! let mut parser = Parser::from_arbitrary(["myprogram", "-v", "--file=input.txt"]).unwrap();
 //!
 //! while let Some(arg) = parser.forward().unwrap() {
 //!     match arg {
@@ -74,8 +74,7 @@ pub type Result<T, E = ParsingError> = core::result::Result<T, E>;
 /// ```rust
 /// use sap::{Parser, Argument};
 ///
-/// let args = vec!["prog".to_string(), "--verbose".to_string(), "-x".to_string(), "file.txt".to_string()];
-/// let mut parser = Parser::from_arbitrary(args).unwrap();
+/// let mut parser = Parser::from_arbitrary(["prog", "--verbose", "-x", "file.txt"]).unwrap();
 ///
 /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("verbose")));
 /// assert_eq!(parser.forward().unwrap(), Some(Argument::Short('x')));
@@ -182,7 +181,7 @@ impl<'a> Argument<'a> {
 ///
 /// # Type Parameters
 ///
-/// * `I` - An iterator that yields `String` items (typically from command-line arguments)
+/// * `I` - An iterator that yields items convertible to `String` (e.g., `&str`, `String`, `OsString`)
 ///
 /// # Examples
 ///
@@ -192,9 +191,8 @@ impl<'a> Argument<'a> {
 /// // Parse from environment arguments
 /// let mut parser = Parser::from_env().unwrap();
 ///
-/// // Or parse from a custom iterator
-/// let args = vec!["myprogram".to_string(), "-abc".to_string(), "--verbose".to_string()];
-/// let mut parser = Parser::from_arbitrary(args).unwrap();
+/// // Or parse from string arrays directly
+/// let mut parser = Parser::from_arbitrary(["myprogram", "-abc", "--verbose"]).unwrap();
 ///
 /// // Process arguments one by one
 /// while let Some(arg) = parser.forward().unwrap() {
@@ -252,14 +250,17 @@ impl Parser<env::Args> {
     }
 }
 
-impl<I> Parser<I>
+impl<I, V> Parser<I>
 where
-    I: Iterator<Item = String>,
+    I: Iterator<Item = V>,
+    V: Into<String>,
 {
-    /// Creates a `Parser` from any iterator that yields `String` items.
+    /// Creates a `Parser` from any iterator that yields items convertible to `String`.
     ///
-    /// This method allows parsing custom argument lists, which is useful for testing
-    /// or when arguments come from sources other than the command line.
+    /// This method provides maximum flexibility for parsing argument lists. You can pass
+    /// string arrays, vectors, or any other iterable collection of string-like items.
+    /// This is particularly useful for testing and when arguments come from sources
+    /// other than the command line.
     ///
     /// The first item from the iterator is treated as the program name and can be
     /// accessed via [`Parser::name`]. All subsequent items are parsed as arguments.
@@ -273,16 +274,20 @@ where
     /// ```rust
     /// use sap::Parser;
     ///
-    /// let args = vec!["myprogram".to_string(), "-v".to_string(), "file.txt".to_string()];
-    /// let parser = Parser::from_arbitrary(args).unwrap();
+    /// // Parse from string arrays directly
+    /// let parser = Parser::from_arbitrary(["myprogram", "-v", "file.txt"]).unwrap();
     /// assert_eq!(parser.name(), "myprogram");
+    ///
+    /// // Also works with vectors of strings
+    /// let args = vec!["prog".to_string(), "--verbose".to_string()];
+    /// let parser = Parser::from_arbitrary(args).unwrap();
     /// ```
     pub fn from_arbitrary<A>(iter: A) -> Result<Parser<I>>
     where
         A: IntoIterator<IntoIter = I>,
     {
         let mut iter = iter.into_iter();
-        let name = iter.next().ok_or(ParsingError::Empty)?;
+        let name = iter.next().ok_or(ParsingError::Empty)?.into();
 
         Ok(Parser {
             iter,
@@ -318,8 +323,7 @@ where
     /// ```rust
     /// use sap::{Parser, Argument};
     ///
-    /// let args = vec!["prog".to_string(), "-abc".to_string(), "--file=test.txt".to_string()];
-    /// let mut parser = Parser::from_arbitrary(args).unwrap();
+    /// let mut parser = Parser::from_arbitrary(["prog", "-abc", "--file=test.txt"]).unwrap();
     ///
     /// // Combined short options are parsed individually
     /// assert_eq!(parser.forward().unwrap(), Some(Argument::Short('a')));
@@ -334,7 +338,10 @@ where
     /// ```
     pub fn forward(&mut self) -> Result<Option<Argument<'_>>> {
         if matches!(self.state, State::End) {
-            return Ok(self.iter.next().map(|v| Argument::Value(Cow::Owned(v))));
+            return Ok(self
+                .iter
+                .next()
+                .map(|v| Argument::Value(Cow::Owned(v.into()))));
         }
 
         if let State::Combined(index, ref mut options) = self.state {
@@ -358,7 +365,7 @@ where
         }
 
         let arg = match self.iter.next() {
-            Some(value) => value,
+            Some(value) => value.into(),
             None => return Ok(None),
         };
 
@@ -370,7 +377,11 @@ where
             match arg.get(1..) {
                 Some("-") => {
                     self.state = State::End;
-                    return Ok(self.iter.next().map(|v| Argument::Value(Cow::Owned(v))));
+
+                    return Ok(self
+                        .iter
+                        .next()
+                        .map(|v| Argument::Value(Cow::Owned(v.into()))));
                 }
                 Some(rest) => {
                     if let Some((_, option)) = rest.split_once('-') {
@@ -420,8 +431,7 @@ where
     /// ```rust
     /// use sap::{Parser, Argument};
     ///
-    /// let args = vec!["prog".to_string(), "--file=input.txt".to_string(), "--verbose".to_string()];
-    /// let mut parser = Parser::from_arbitrary(args).unwrap();
+    /// let mut parser = Parser::from_arbitrary(["prog", "--file=input.txt", "--verbose"]).unwrap();
     ///
     /// // Option with attached value
     /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("file")));
@@ -453,8 +463,7 @@ where
     /// ```rust
     /// use sap::{Parser, Argument};
     ///
-    /// let args = vec!["prog".to_string(), "--debug=verbose".to_string()];
-    /// let mut parser = Parser::from_arbitrary(args).unwrap();
+    /// let mut parser = Parser::from_arbitrary(["prog", "--debug=verbose"]).unwrap();
     ///
     /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("debug")));
     /// parser.ignore_value(); // Discard the "verbose" value
@@ -473,8 +482,7 @@ where
     /// ```rust
     /// use sap::Parser;
     ///
-    /// let args = vec!["/usr/bin/myprogram".to_string(), "-v".to_string()];
-    /// let parser = Parser::from_arbitrary(args).unwrap();
+    /// let parser = Parser::from_arbitrary(["/usr/bin/myprogram", "-v"]).unwrap();
     /// assert_eq!(parser.name(), "/usr/bin/myprogram");
     /// ```
     pub fn name(&self) -> &str {
@@ -491,14 +499,13 @@ where
     /// ```rust
     /// use sap::{Parser, Argument};
     ///
-    /// let args = vec!["prog".to_string(), "-v".to_string(), "remaining".to_string()];
-    /// let mut parser = Parser::from_arbitrary(args).unwrap();
+    /// let mut parser = Parser::from_arbitrary(["prog", "-v", "remaining"]).unwrap();
     ///
     /// // Parse one argument
     /// parser.forward().unwrap();
     ///
     /// // Get the remaining iterator
-    /// let remaining: Vec<String> = parser.into_inner().collect();
+    /// let remaining: Vec<String> = parser.into_inner().map(|s| s.into()).collect();
     /// assert_eq!(remaining, vec!["remaining"]);
     /// ```
     pub fn into_inner(self) -> I {
@@ -605,15 +612,10 @@ impl Error for ParsingError {}
 mod tests {
     use crate::{Argument::*, Parser, Result};
 
-    fn make_parser(values: &[&str]) -> Result<Parser<std::vec::IntoIter<String>>> {
-        let values: Vec<String> = values.iter().map(|s| s.to_string()).collect();
-        Ok(Parser::from_arbitrary(values)?)
-    }
-
     // Basic functionality tests
     #[test]
     fn basic() -> Result<()> {
-        let mut parser = make_parser(&["testbin", "-meow", "--awrff=puppy", "value"])?;
+        let mut parser = Parser::from_arbitrary(["testbin", "-meow", "--awrff=puppy", "value"])?;
 
         assert_eq!(parser.name(), "testbin");
         assert_eq!(parser.forward()?, Some(Short('m')));
@@ -631,7 +633,7 @@ mod tests {
 
     #[test]
     fn simple_error() -> Result<()> {
-        let mut parser = make_parser(&["bin", "-this=wrong"])?;
+        let mut parser = Parser::from_arbitrary(["bin", "-this=wrong"])?;
 
         assert_eq!(parser.forward()?, Some(Short('t')));
         assert_eq!(parser.forward()?, Some(Short('h')));
@@ -689,7 +691,8 @@ mod tests {
 
     #[test]
     fn trailing_values() -> Result<()> {
-        let mut parser = make_parser(&["testbin", "-meow", "--awrff=puppy", "--", "meow"])?;
+        let mut parser =
+            Parser::from_arbitrary(["testbin", "-meow", "--awrff=puppy", "--", "meow"])?;
         while let Some(p) = parser.forward()? {
             dbg!(p);
         }
@@ -699,7 +702,7 @@ mod tests {
     // GNU-style short option tests
     #[test]
     fn short_option_clustering() -> Result<()> {
-        let mut parser = make_parser(&["prog", "-abc"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "-abc"])?;
 
         assert_eq!(parser.forward()?, Some(Short('a')));
         assert_eq!(parser.forward()?, Some(Short('b')));
@@ -710,7 +713,7 @@ mod tests {
 
     #[test]
     fn short_option_clustering_with_final_value() -> Result<()> {
-        let mut parser = make_parser(&["prog", "-abf", "value"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "-abf", "value"])?;
 
         assert_eq!(parser.forward()?, Some(Short('a')));
         assert_eq!(parser.forward()?, Some(Short('b')));
@@ -722,7 +725,7 @@ mod tests {
 
     #[test]
     fn short_option_with_separate_value() -> Result<()> {
-        let mut parser = make_parser(&["prog", "-f", "value"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "-f", "value"])?;
 
         assert_eq!(parser.forward()?, Some(Short('f')));
         // Value should be available for consumption if the option expects it
@@ -733,7 +736,7 @@ mod tests {
 
     #[test]
     fn clustered_short_options_all_flags() -> Result<()> {
-        let mut parser = make_parser(&["prog", "-abcd"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "-abcd"])?;
 
         assert_eq!(parser.forward()?, Some(Short('a')));
         assert_eq!(parser.forward()?, Some(Short('b')));
@@ -746,7 +749,7 @@ mod tests {
     // GNU-style long option tests
     #[test]
     fn long_option_with_equals() -> Result<()> {
-        let mut parser = make_parser(&["prog", "--file=myfile.txt"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "--file=myfile.txt"])?;
 
         assert_eq!(parser.forward()?, Some(Long("file")));
         assert_eq!(parser.value().as_deref(), Some("myfile.txt"));
@@ -756,7 +759,7 @@ mod tests {
 
     #[test]
     fn long_option_with_separate_value() -> Result<()> {
-        let mut parser = make_parser(&["prog", "--file", "myfile.txt"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "--file", "myfile.txt"])?;
 
         assert_eq!(parser.forward()?, Some(Long("file")));
         assert_eq!(parser.forward()?, Some(Value("myfile.txt".into())));
@@ -766,7 +769,7 @@ mod tests {
 
     #[test]
     fn long_option_without_value() -> Result<()> {
-        let mut parser = make_parser(&["prog", "--verbose"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "--verbose"])?;
 
         assert_eq!(parser.forward()?, Some(Long("verbose")));
         assert_eq!(parser.value().as_deref(), None);
@@ -776,7 +779,7 @@ mod tests {
 
     #[test]
     fn long_option_empty_value() -> Result<()> {
-        let mut parser = make_parser(&["prog", "--empty="])?;
+        let mut parser = Parser::from_arbitrary(["prog", "--empty="])?;
 
         assert_eq!(parser.forward()?, Some(Long("empty")));
         assert_eq!(parser.value().as_deref(), Some(""));
@@ -787,7 +790,8 @@ mod tests {
     // Double dash (--) terminator tests
     #[test]
     fn double_dash_terminator() -> Result<()> {
-        let mut parser = make_parser(&["prog", "--verbose", "--", "--not-an-option", "-x"])?;
+        let mut parser =
+            Parser::from_arbitrary(["prog", "--verbose", "--", "--not-an-option", "-x"])?;
 
         assert_eq!(parser.forward()?, Some(Long("verbose")));
         assert_eq!(parser.forward()?, Some(Value("--not-an-option".into())));
@@ -798,7 +802,7 @@ mod tests {
 
     #[test]
     fn double_dash_alone() -> Result<()> {
-        let mut parser = make_parser(&["prog", "--"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "--"])?;
 
         assert!(parser.forward()?.is_none());
         Ok(())
@@ -806,7 +810,7 @@ mod tests {
 
     #[test]
     fn double_dash_with_values_only() -> Result<()> {
-        let mut parser = make_parser(&["prog", "--", "file1", "file2", "file3"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "--", "file1", "file2", "file3"])?;
 
         assert_eq!(parser.forward()?, Some(Value("file1".into())));
         assert_eq!(parser.forward()?, Some(Value("file2".into())));
@@ -818,7 +822,7 @@ mod tests {
     // Single dash tests
     #[test]
     fn single_dash_as_stdio() -> Result<()> {
-        let mut parser = make_parser(&["prog", "-"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "-"])?;
 
         assert_eq!(parser.forward()?, Some(Stdio));
         assert!(parser.forward()?.is_none());
@@ -827,7 +831,7 @@ mod tests {
 
     #[test]
     fn single_dash_mixed_with_options() -> Result<()> {
-        let mut parser = make_parser(&["prog", "--verbose", "-", "-x"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "--verbose", "-", "-x"])?;
 
         assert_eq!(parser.forward()?, Some(Long("verbose")));
         assert_eq!(parser.forward()?, Some(Stdio));
@@ -838,7 +842,7 @@ mod tests {
 
     #[test]
     fn multiple_stdio_arguments() -> Result<()> {
-        let mut parser = make_parser(&["prog", "-", "-", "-"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "-", "-", "-"])?;
 
         assert_eq!(parser.forward()?, Some(Stdio));
         assert_eq!(parser.forward()?, Some(Stdio));
@@ -849,7 +853,7 @@ mod tests {
 
     #[test]
     fn stdio_with_values_after_double_dash() -> Result<()> {
-        let mut parser = make_parser(&["prog", "-", "--", "-", "regular_file"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "-", "--", "-", "regular_file"])?;
 
         assert_eq!(parser.forward()?, Some(Stdio));
         assert_eq!(parser.forward()?, Some(Value("-".into())));
@@ -861,7 +865,7 @@ mod tests {
     // Edge cases and error conditions
     #[test]
     fn empty_long_option() -> Result<()> {
-        let result = make_parser(&["prog", "--"]);
+        let result = Parser::from_arbitrary(["prog", "--"]);
         // This should either parse successfully (treating -- as terminator)
         // or fail depending on implementation
         match result {
@@ -877,7 +881,7 @@ mod tests {
 
     #[test]
     fn short_option_with_equals_causes_error() -> Result<()> {
-        let mut parser = make_parser(&["prog", "-x=value"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "-x=value"])?;
 
         assert_eq!(parser.forward()?, Some(Short('x')));
 
@@ -888,7 +892,7 @@ mod tests {
 
     #[test]
     fn numeric_short_options() -> Result<()> {
-        let mut parser = make_parser(&["prog", "-1", "-2", "-3"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "-1", "-2", "-3"])?;
 
         assert_eq!(parser.forward()?, Some(Short('1')));
         assert_eq!(parser.forward()?, Some(Short('2')));
@@ -899,7 +903,7 @@ mod tests {
 
     #[test]
     fn special_character_short_options() -> Result<()> {
-        let mut parser = make_parser(&["prog", "-@", "-#", "-%"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "-@", "-#", "-%"])?;
 
         assert_eq!(parser.forward()?, Some(Short('@')));
         assert_eq!(parser.forward()?, Some(Short('#')));
@@ -911,7 +915,7 @@ mod tests {
     // Complex scenarios
     #[test]
     fn complex_mixed_arguments() -> Result<()> {
-        let mut parser = make_parser(&[
+        let mut parser = Parser::from_arbitrary([
             "myprogram",
             "-abc",
             "--verbose",
@@ -956,13 +960,13 @@ mod tests {
 
     #[test]
     fn program_name_extraction() -> Result<()> {
-        let parser1 = make_parser(&["simple"])?;
+        let parser1 = Parser::from_arbitrary(["simple"])?;
         assert_eq!(parser1.name(), "simple");
 
-        let parser2 = make_parser(&["/usr/bin/complex-name"])?;
+        let parser2 = Parser::from_arbitrary(["/usr/bin/complex-name"])?;
         assert_eq!(parser2.name(), "/usr/bin/complex-name");
 
-        let parser3 = make_parser(&["./relative/path/prog"])?;
+        let parser3 = Parser::from_arbitrary(["./relative/path/prog"])?;
         assert_eq!(parser3.name(), "./relative/path/prog");
 
         Ok(())
@@ -970,7 +974,7 @@ mod tests {
 
     #[test]
     fn unicode_in_options() -> Result<()> {
-        let mut parser = make_parser(&["prog", "--файл=документ.txt", "-ñ"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "--файл=документ.txt", "-ñ"])?;
 
         assert_eq!(parser.forward()?, Some(Long("файл")));
         assert_eq!(parser.value().as_deref(), Some("документ.txt"));
@@ -981,7 +985,7 @@ mod tests {
 
     #[test]
     fn whitespace_in_values() -> Result<()> {
-        let mut parser = make_parser(&[
+        let mut parser = Parser::from_arbitrary([
             "prog",
             "--message=hello world",
             "-f",
@@ -1001,7 +1005,7 @@ mod tests {
 
     #[test]
     fn multiple_equals_in_value() -> Result<()> {
-        let mut parser = make_parser(&["prog", "--equation=x=y+z=w"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "--equation=x=y+z=w"])?;
 
         assert_eq!(parser.forward()?, Some(Long("equation")));
         assert_eq!(parser.value().as_deref(), Some("x=y+z=w"));
@@ -1011,7 +1015,7 @@ mod tests {
 
     #[test]
     fn empty_arguments() -> Result<()> {
-        let mut parser = make_parser(&["prog", "", "--verbose", ""])?;
+        let mut parser = Parser::from_arbitrary(["prog", "", "--verbose", ""])?;
 
         assert_eq!(parser.forward()?, Some(Value("".into())));
         assert_eq!(parser.forward()?, Some(Long("verbose")));
@@ -1024,7 +1028,7 @@ mod tests {
     #[test]
     fn getopt_style_option_parsing() -> Result<()> {
         // Test POSIX-style where options must come before operands
-        let mut parser = make_parser(&["prog", "-a", "operand", "-b"])?;
+        let mut parser = Parser::from_arbitrary(["prog", "-a", "operand", "-b"])?;
 
         assert_eq!(parser.forward()?, Some(Short('a')));
         assert_eq!(parser.forward()?, Some(Value("operand".into())));
@@ -1045,12 +1049,13 @@ mod tests {
     #[test]
     fn boundary_conditions() -> Result<()> {
         // Test with just program name
-        let mut parser1 = make_parser(&["prog"])?;
+        let mut parser1 = Parser::from_arbitrary(["prog"])?;
         assert!(parser1.forward()?.is_none());
 
         // Test with maximum length option names (if your implementation has limits)
         let long_name = "a".repeat(1000);
-        let mut parser2 = make_parser(&["prog", &format!("--{}", long_name)])?;
+        let long_option = format!("--{}", long_name);
+        let mut parser2 = Parser::from_arbitrary(["prog", &long_option])?;
         if let Some(Long(name)) = parser2.forward()? {
             assert_eq!(name, long_name);
         }
