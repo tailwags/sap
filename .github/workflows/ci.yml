@@ -30,7 +30,7 @@ jobs:
     name: Run tests with miri
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout
+      - uses: actions/checkout@v4
 
       - name: Setup rust
         run: rustup toolchain install nightly --profile minimal
