@@ -612,447 +612,285 @@ impl Error for ParsingError {}
 mod tests {
     use crate::{Argument::*, Parser, Result};
 
-    // Basic functionality tests
     #[test]
-    fn basic() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["testbin", "-meow", "--awrff=puppy", "value"])?;
+    fn parser_creation() -> Result<()> {
+        let parser = Parser::from_env()?;
+        assert!(!parser.name().is_empty());
 
-        assert_eq!(parser.name(), "testbin");
-        assert_eq!(parser.forward()?, Some(Short('m')));
-        assert_eq!(parser.forward()?, Some(Short('e')));
-        assert_eq!(parser.forward()?, Some(Short('o')));
-        assert_eq!(parser.forward()?, Some(Short('w')));
+        let parser = Parser::from_arbitrary(["test"])?;
+        assert_eq!(parser.name(), "test");
 
-        assert_eq!(parser.forward()?, Some(Long("awrff")));
-        assert_eq!(parser.value().as_deref(), Some("puppy"));
-        assert_eq!(parser.forward()?, Some(Value("value".into())));
+        let parser = Parser::from_arbitrary(["/usr/bin/program", "-v"])?;
+        assert_eq!(parser.name(), "/usr/bin/program");
 
-        assert!(parser.forward()?.is_none());
+        assert!(Parser::from_arbitrary::<[&str; 0]>([]).is_err());
         Ok(())
     }
 
     #[test]
-    fn simple_error() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["bin", "-this=wrong"])?;
+    fn short_options() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "-a", "-b", "-c"])?;
+        assert_eq!(parser.forward()?, Some(Short('a')));
+        assert_eq!(parser.forward()?, Some(Short('b')));
+        assert_eq!(parser.forward()?, Some(Short('c')));
+        assert_eq!(parser.forward()?, None);
+        Ok(())
+    }
 
-        assert_eq!(parser.forward()?, Some(Short('t')));
-        assert_eq!(parser.forward()?, Some(Short('h')));
-        assert_eq!(parser.forward()?, Some(Short('i')));
-        assert_eq!(parser.forward()?, Some(Short('s')));
+    #[test]
+    fn short_option_clustering() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "-abc"])?;
+        assert_eq!(parser.forward()?, Some(Short('a')));
+        assert_eq!(parser.forward()?, Some(Short('b')));
+        assert_eq!(parser.forward()?, Some(Short('c')));
+        assert_eq!(parser.forward()?, None);
+        Ok(())
+    }
 
+    #[test]
+    fn short_option_special_chars() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "-1", "-@", "-ñ"])?;
+        assert_eq!(parser.forward()?, Some(Short('1')));
+        assert_eq!(parser.forward()?, Some(Short('@')));
+        assert_eq!(parser.forward()?, Some(Short('ñ')));
+        assert_eq!(parser.forward()?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn short_option_equals_error() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "-x=value"])?;
+        assert_eq!(parser.forward()?, Some(Short('x')));
         assert!(parser.forward().is_err());
         Ok(())
     }
 
     #[test]
-    fn argument_to_error() {
-        // Test Long argument with value
-        let arg = Long("example");
-        assert_eq!(
-            arg.into_error("examplevalue").to_string(),
-            "unexpected argument: --example=examplevalue"
-        );
-
-        // Test Long argument without value
-        let arg = Long("verbose");
-        assert_eq!(
-            arg.into_error(None::<&str>).to_string(),
-            "unexpected argument: --verbose"
-        );
-
-        // Test Short argument with value
-        let arg = Short('f');
-        assert_eq!(
-            arg.into_error("file.txt").to_string(),
-            "unexpected argument: -f file.txt"
-        );
-
-        // Test Short argument without value
-        let arg = Short('v');
-        assert_eq!(
-            arg.into_error(None::<&str>).to_string(),
-            "unexpected argument: -v"
-        );
-
-        // Test Value argument
-        let arg = Value("filename.txt".into());
-        assert_eq!(
-            arg.into_error(None::<&str>).to_string(),
-            "unexpected argument: filename.txt"
-        );
-
-        // Test Stdio argument
-        let arg = Stdio;
-        assert_eq!(
-            arg.into_error(None::<&str>).to_string(),
-            "unexpected argument: -"
-        );
-    }
-
-    #[test]
-    fn trailing_values() -> Result<()> {
-        let mut parser =
-            Parser::from_arbitrary(["testbin", "-meow", "--awrff=puppy", "--", "meow"])?;
-        while let Some(p) = parser.forward()? {
-            dbg!(p);
-        }
-        Ok(())
-    }
-
-    // GNU-style short option tests
-    #[test]
-    fn short_option_clustering() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "-abc"])?;
-
-        assert_eq!(parser.forward()?, Some(Short('a')));
-        assert_eq!(parser.forward()?, Some(Short('b')));
-        assert_eq!(parser.forward()?, Some(Short('c')));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn short_option_clustering_with_final_value() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "-abf", "value"])?;
-
-        assert_eq!(parser.forward()?, Some(Short('a')));
-        assert_eq!(parser.forward()?, Some(Short('b')));
-        assert_eq!(parser.forward()?, Some(Short('f')));
-        assert_eq!(parser.forward()?, Some(Value("value".into())));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn short_option_with_separate_value() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "-f", "value"])?;
-
-        assert_eq!(parser.forward()?, Some(Short('f')));
-        // Value should be available for consumption if the option expects it
-        assert_eq!(parser.forward()?, Some(Value("value".into())));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn clustered_short_options_all_flags() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "-abcd"])?;
-
-        assert_eq!(parser.forward()?, Some(Short('a')));
-        assert_eq!(parser.forward()?, Some(Short('b')));
-        assert_eq!(parser.forward()?, Some(Short('c')));
-        assert_eq!(parser.forward()?, Some(Short('d')));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    // GNU-style long option tests
-    #[test]
-    fn long_option_with_equals() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "--file=myfile.txt"])?;
-
-        assert_eq!(parser.forward()?, Some(Long("file")));
-        assert_eq!(parser.value().as_deref(), Some("myfile.txt"));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn long_option_with_separate_value() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "--file", "myfile.txt"])?;
-
-        assert_eq!(parser.forward()?, Some(Long("file")));
-        assert_eq!(parser.forward()?, Some(Value("myfile.txt".into())));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn long_option_without_value() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "--verbose"])?;
-
+    fn long_options() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "--verbose", "--help"])?;
         assert_eq!(parser.forward()?, Some(Long("verbose")));
-        assert_eq!(parser.value().as_deref(), None);
-        assert!(parser.forward()?.is_none());
+        assert_eq!(parser.value(), None);
+        assert_eq!(parser.forward()?, Some(Long("help")));
+        assert_eq!(parser.forward()?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn long_option_with_value() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "--file=test.txt"])?;
+        assert_eq!(parser.forward()?, Some(Long("file")));
+        assert_eq!(parser.value(), Some("test.txt".to_string()));
+        assert_eq!(parser.value(), None);
+        assert_eq!(parser.forward()?, None);
         Ok(())
     }
 
     #[test]
     fn long_option_empty_value() -> Result<()> {
         let mut parser = Parser::from_arbitrary(["prog", "--empty="])?;
-
         assert_eq!(parser.forward()?, Some(Long("empty")));
-        assert_eq!(parser.value().as_deref(), Some(""));
-        assert!(parser.forward()?.is_none());
+        assert_eq!(parser.value(), Some(String::new()));
+        assert_eq!(parser.forward()?, None);
         Ok(())
     }
 
-    // Double dash (--) terminator tests
     #[test]
-    fn double_dash_terminator() -> Result<()> {
+    fn long_option_complex_values() -> Result<()> {
         let mut parser =
-            Parser::from_arbitrary(["prog", "--verbose", "--", "--not-an-option", "-x"])?;
+            Parser::from_arbitrary(["prog", "--equation=x=y+z", "--spaces=hello world"])?;
 
-        assert_eq!(parser.forward()?, Some(Long("verbose")));
-        assert_eq!(parser.forward()?, Some(Value("--not-an-option".into())));
-        assert_eq!(parser.forward()?, Some(Value("-x".into())));
-        assert!(parser.forward()?.is_none());
+        assert_eq!(parser.forward()?, Some(Long("equation")));
+        assert_eq!(parser.value(), Some("x=y+z".to_string()));
+
+        assert_eq!(parser.forward()?, Some(Long("spaces")));
+        assert_eq!(parser.value(), Some("hello world".to_string()));
+
+        assert_eq!(parser.forward()?, None);
         Ok(())
     }
 
     #[test]
-    fn double_dash_alone() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "--"])?;
-
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn double_dash_with_values_only() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "--", "file1", "file2", "file3"])?;
-
+    fn positional_args() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "file1", "file2", "file3"])?;
         assert_eq!(parser.forward()?, Some(Value("file1".into())));
         assert_eq!(parser.forward()?, Some(Value("file2".into())));
         assert_eq!(parser.forward()?, Some(Value("file3".into())));
-        assert!(parser.forward()?.is_none());
+        assert_eq!(parser.forward()?, None);
         Ok(())
     }
 
-    // Single dash tests
     #[test]
-    fn single_dash_as_stdio() -> Result<()> {
+    fn stdio_argument() -> Result<()> {
         let mut parser = Parser::from_arbitrary(["prog", "-"])?;
-
         assert_eq!(parser.forward()?, Some(Stdio));
-        assert!(parser.forward()?.is_none());
+        assert_eq!(parser.forward()?, None);
+
+        let mut parser = Parser::from_arbitrary(["prog", "-v", "-", "--help"])?;
+        assert_eq!(parser.forward()?, Some(Short('v')));
+        assert_eq!(parser.forward()?, Some(Stdio));
+        assert_eq!(parser.forward()?, Some(Long("help")));
+        assert_eq!(parser.forward()?, None);
         Ok(())
     }
 
     #[test]
-    fn single_dash_mixed_with_options() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "--verbose", "-", "-x"])?;
+    fn double_dash_terminator() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "-v", "--", "--not-an-option", "-x"])?;
+        assert_eq!(parser.forward()?, Some(Short('v')));
+        assert_eq!(parser.forward()?, Some(Value("--not-an-option".into())));
+        assert_eq!(parser.forward()?, Some(Value("-x".into())));
+        assert_eq!(parser.forward()?, None);
 
-        assert_eq!(parser.forward()?, Some(Long("verbose")));
-        assert_eq!(parser.forward()?, Some(Stdio));
-        assert_eq!(parser.forward()?, Some(Short('x')));
-        assert!(parser.forward()?.is_none());
+        let mut parser = Parser::from_arbitrary(["prog", "--"])?;
+        assert_eq!(parser.forward()?, None);
+
+        let mut parser = Parser::from_arbitrary(["prog", "--", "file1", "file2"])?;
+        assert_eq!(parser.forward()?, Some(Value("file1".into())));
+        assert_eq!(parser.forward()?, Some(Value("file2".into())));
+        assert_eq!(parser.forward()?, None);
         Ok(())
     }
 
     #[test]
-    fn multiple_stdio_arguments() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "-", "-", "-"])?;
-
-        assert_eq!(parser.forward()?, Some(Stdio));
-        assert_eq!(parser.forward()?, Some(Stdio));
-        assert_eq!(parser.forward()?, Some(Stdio));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn stdio_with_values_after_double_dash() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "-", "--", "-", "regular_file"])?;
-
+    fn stdio_after_double_dash() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "-", "--", "-", "file"])?;
         assert_eq!(parser.forward()?, Some(Stdio));
         assert_eq!(parser.forward()?, Some(Value("-".into())));
-        assert_eq!(parser.forward()?, Some(Value("regular_file".into())));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    // Edge cases and error conditions
-    #[test]
-    fn empty_long_option() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "--"])?;
-
-        assert!(parser.forward()?.is_none());
-
+        assert_eq!(parser.forward()?, Some(Value("file".into())));
+        assert_eq!(parser.forward()?, None);
         Ok(())
     }
 
     #[test]
-    fn short_option_with_equals_causes_error() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "-x=value"])?;
-
-        assert_eq!(parser.forward()?, Some(Short('x')));
-
-        assert!(parser.forward().is_err());
-
-        Ok(())
-    }
-
-    #[test]
-    fn numeric_short_options() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "-1", "-2", "-3"])?;
-
-        assert_eq!(parser.forward()?, Some(Short('1')));
-        assert_eq!(parser.forward()?, Some(Short('2')));
-        assert_eq!(parser.forward()?, Some(Short('3')));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn special_character_short_options() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "-@", "-#", "-%"])?;
-
-        assert_eq!(parser.forward()?, Some(Short('@')));
-        assert_eq!(parser.forward()?, Some(Short('#')));
-        assert_eq!(parser.forward()?, Some(Short('%')));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    // Complex scenarios
-    #[test]
-    fn complex_mixed_arguments() -> Result<()> {
+    fn mixed_arguments() -> Result<()> {
         let mut parser = Parser::from_arbitrary([
-            "myprogram",
+            "prog",
             "-abc",
             "--verbose",
             "-f",
-            "file1.txt",
+            "file.txt",
             "--output=result.txt",
             "--",
-            "positional1",
-            "--not-parsed-as-option",
-            "-also-positional",
+            "pos1",
+            "-x",
         ])?;
 
-        assert_eq!(parser.name(), "myprogram");
-
-        // Clustered short options
         assert_eq!(parser.forward()?, Some(Short('a')));
         assert_eq!(parser.forward()?, Some(Short('b')));
         assert_eq!(parser.forward()?, Some(Short('c')));
-
-        // Long option without value
         assert_eq!(parser.forward()?, Some(Long("verbose")));
-
-        // Short option followed by separate value
         assert_eq!(parser.forward()?, Some(Short('f')));
-        assert_eq!(parser.forward()?, Some(Value("file1.txt".into())));
-
-        // Long option with attached value
+        assert_eq!(parser.forward()?, Some(Value("file.txt".into())));
         assert_eq!(parser.forward()?, Some(Long("output")));
-        assert_eq!(parser.value().as_deref(), Some("result.txt"));
-
-        // Everything after -- should be positional
-        assert_eq!(parser.forward()?, Some(Value("positional1".into())));
-        assert_eq!(
-            parser.forward()?,
-            Some(Value("--not-parsed-as-option".into()))
-        );
-        assert_eq!(parser.forward()?, Some(Value("-also-positional".into())));
-
-        assert!(parser.forward()?.is_none());
+        assert_eq!(parser.value(), Some("result.txt".to_string()));
+        assert_eq!(parser.forward()?, Some(Value("pos1".into())));
+        assert_eq!(parser.forward()?, Some(Value("-x".into())));
+        assert_eq!(parser.forward()?, None);
         Ok(())
     }
 
     #[test]
-    fn program_name_extraction() -> Result<()> {
-        let parser1 = Parser::from_arbitrary(["simple"])?;
-        assert_eq!(parser1.name(), "simple");
+    fn value_consumption() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "--file=test.txt", "--verbose"])?;
 
-        let parser2 = Parser::from_arbitrary(["/usr/bin/complex-name"])?;
-        assert_eq!(parser2.name(), "/usr/bin/complex-name");
+        assert_eq!(parser.forward()?, Some(Long("file")));
+        assert_eq!(parser.value(), Some("test.txt".to_string()));
+        assert_eq!(parser.value(), None);
 
-        let parser3 = Parser::from_arbitrary(["./relative/path/prog"])?;
-        assert_eq!(parser3.name(), "./relative/path/prog");
-
-        Ok(())
-    }
-
-    #[test]
-    fn unicode_in_options() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "--файл=документ.txt", "-ñ"])?;
-
-        assert_eq!(parser.forward()?, Some(Long("файл")));
-        assert_eq!(parser.value().as_deref(), Some("документ.txt"));
-        assert_eq!(parser.forward()?, Some(Short('ñ')));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn whitespace_in_values() -> Result<()> {
-        let mut parser = Parser::from_arbitrary([
-            "prog",
-            "--message=hello world",
-            "-f",
-            "file with spaces.txt",
-        ])?;
-
-        assert_eq!(parser.forward()?, Some(Long("message")));
-        assert_eq!(parser.value().as_deref(), Some("hello world"));
-        assert_eq!(parser.forward()?, Some(Short('f')));
-        assert_eq!(
-            parser.forward()?,
-            Some(Value("file with spaces.txt".into()))
-        );
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn multiple_equals_in_value() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "--equation=x=y+z=w"])?;
-
-        assert_eq!(parser.forward()?, Some(Long("equation")));
-        assert_eq!(parser.value().as_deref(), Some("x=y+z=w"));
-        assert!(parser.forward()?.is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn empty_arguments() -> Result<()> {
-        let mut parser = Parser::from_arbitrary(["prog", "", "--verbose", ""])?;
-
-        assert_eq!(parser.forward()?, Some(Value("".into())));
         assert_eq!(parser.forward()?, Some(Long("verbose")));
-        assert_eq!(parser.forward()?, Some(Value("".into())));
-        assert!(parser.forward()?.is_none());
+        parser.ignore_value();
+
+        assert_eq!(parser.forward()?, None);
         Ok(())
     }
 
-    // GNU getopt compatibility tests
     #[test]
-    fn getopt_style_option_parsing() -> Result<()> {
-        // Test POSIX-style where options must come before operands
-        let mut parser = Parser::from_arbitrary(["prog", "-a", "operand", "-b"])?;
+    fn unicode_support() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "--файл=документ.txt", "-ñ"])?;
+        assert_eq!(parser.forward()?, Some(Long("файл")));
+        assert_eq!(parser.value(), Some("документ.txt".to_string()));
+        assert_eq!(parser.forward()?, Some(Short('ñ')));
+        assert_eq!(parser.forward()?, None);
+        Ok(())
+    }
 
+    #[test]
+    fn empty_and_whitespace() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "", "--msg=hello world"])?;
+        assert_eq!(parser.forward()?, Some(Value("".into())));
+        assert_eq!(parser.forward()?, Some(Long("msg")));
+        assert_eq!(parser.value(), Some("hello world".to_string()));
+        assert_eq!(parser.forward()?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn unconsumed_value_error() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "--file=test.txt", "--verbose"])?;
+        assert_eq!(parser.forward()?, Some(Long("file")));
+        assert!(parser.forward().is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn into_inner() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "-v", "remaining1", "remaining2"])?;
+        assert_eq!(parser.forward()?, Some(Short('v')));
+
+        let remaining: Vec<_> = parser.into_inner().collect();
+        assert_eq!(remaining, ["remaining1", "remaining2"]);
+        Ok(())
+    }
+
+    #[test]
+    fn argument_into_error() {
+        assert_eq!(
+            Long("test").into_error("value").to_string(),
+            "unexpected argument: --test=value"
+        );
+        assert_eq!(
+            Long("test").into_error(None::<&str>).to_string(),
+            "unexpected argument: --test"
+        );
+        assert_eq!(
+            Short('x').into_error("val").to_string(),
+            "unexpected argument: -x val"
+        );
+        assert_eq!(
+            Short('x').into_error(None::<&str>).to_string(),
+            "unexpected argument: -x"
+        );
+        assert_eq!(
+            Value("file".into()).into_error(None::<&str>).to_string(),
+            "unexpected argument: file"
+        );
+        assert_eq!(
+            Stdio.into_error(None::<&str>).to_string(),
+            "unexpected argument: -"
+        );
+    }
+
+    #[test]
+    fn gnu_style_parsing() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "-a", "operand", "-b"])?;
         assert_eq!(parser.forward()?, Some(Short('a')));
         assert_eq!(parser.forward()?, Some(Value("operand".into())));
-
-        // Depending on GNU vs POSIX mode, -b might be treated as option or operand
-        match parser.forward()? {
-            Some(Short('b')) => {
-                // GNU-style: options can appear anywhere
-            }
-            Some(Value(val)) if val == "-b" => {
-                // POSIX-style: -b is treated as operand after first operand
-            }
-            other => panic!("Unexpected result: {other:?}"),
-        }
+        assert_eq!(parser.forward()?, Some(Short('b')));
+        assert_eq!(parser.forward()?, None);
         Ok(())
     }
 
     #[test]
-    fn boundary_conditions() -> Result<()> {
-        // Test with just program name
-        let mut parser1 = Parser::from_arbitrary(["prog"])?;
-        assert!(parser1.forward()?.is_none());
+    fn stress_test() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog"])?;
+        assert_eq!(parser.forward()?, None);
 
-        // Test with maximum length option names (if your implementation has limits)
         let long_name = "a".repeat(1000);
         let long_option = format!("--{long_name}");
-        let mut parser2 = Parser::from_arbitrary(["prog", &long_option])?;
-        if let Some(Long(name)) = parser2.forward()? {
+        let mut parser = Parser::from_arbitrary(["prog", &long_option])?;
+        if let Some(Long(name)) = parser.forward()? {
             assert_eq!(name, long_name);
         }
-
         Ok(())
     }
 }
