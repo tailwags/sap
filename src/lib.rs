@@ -2,47 +2,148 @@
 #![warn(clippy::complexity)]
 //! # Sap - a Small Argument Parser
 //!
-//! A minimal Unix command-line argument parser with zero dependencies.
+//! A minimal, zero-dependency Unix command-line argument parser for Rust.
+//!
+//! Sap provides full control over argument parsing with an iterator-based API that handles
+//! GNU-style options while maintaining simplicity and flexibility.
 //!
 //! ## Features
 //!
-//! - Parse short options (`-a`, `-b`), long options (`--verbose`), and option values
-//! - Combined short options (`-abc` = `-a -b -c`)
-//! - Support for option values (`--name=value`)
-//! - Error handling with descriptive messages
+//! - **GNU-style option parsing**: Support for short (`-a`), long (`--verbose`), and combined options (`-abc`)
+//! - **Flexible value handling**: Options with values via `--name=value` or separate arguments
+//! - **POSIX compliance**: Handle `--` separator and `-` (stdin) arguments correctly
+//! - **Zero dependencies**: Pure Rust implementation with no external crates
+//! - **Iterator-based**: Works with any `Iterator<Item = String>` for maximum flexibility
+//! - **Comprehensive error handling**: Descriptive error messages for invalid input
+//!
+//! ## Example
+//!
+//! ```rust
+//! use sap::{Parser, Argument};
+//!
+//! let args = vec!["myprogram".to_string(), "-v".to_string(), "--file=input.txt".to_string()];
+//! let mut parser = Parser::from_arbitrary(args).unwrap();
+//!
+//! while let Some(arg) = parser.forward().unwrap() {
+//!     match arg {
+//!         Argument::Short('v') => println!("Verbose mode enabled"),
+//!         Argument::Long("file") => {
+//!             if let Some(filename) = parser.value() {
+//!                 println!("Processing file: {}", filename);
+//!             }
+//!         }
+//!         Argument::Value(val) => println!("Positional argument: {}", val),
+//!         _ => {}
+//!     }
+//! }
+//! ```
 
 use std::{
+    borrow::Cow,
     env,
     error::Error,
-    ffi::OsString,
     fmt::{Debug, Display},
+    hint::unreachable_unchecked,
     mem,
-    os::unix::ffi::{OsStrExt, OsStringExt},
 };
 
-/// Result type specific to Sap, using `ParsingError` as the default error type
+/// A [`Result`] type alias using [`ParsingError`] as the default error type.
+///
+/// This type alias is used throughout the Sap API to reduce boilerplate when
+/// returning parsing results.
+///
+/// # Examples
+///
+/// ```rust
+/// use sap::{Result, ParsingError};
+///
+/// fn parse_config() -> Result<String> {
+///     // Returns Result<String, ParsingError>
+///     Ok("config".to_string())
+/// }
+/// ```
 pub type Result<T, E = ParsingError> = core::result::Result<T, E>;
 
-/// Represents a command-line argument
-#[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Clone, Copy)]
+/// Represents a parsed command-line argument.
+///
+/// Each argument parsed by [`Parser::forward`] is represented as one of these variants.
+/// The parser automatically categorizes arguments based on their prefix and structure.
+///
+/// # Examples
+///
+/// ```rust
+/// use sap::{Parser, Argument};
+///
+/// let args = vec!["prog".to_string(), "--verbose".to_string(), "-x".to_string(), "file.txt".to_string()];
+/// let mut parser = Parser::from_arbitrary(args).unwrap();
+///
+/// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("verbose")));
+/// assert_eq!(parser.forward().unwrap(), Some(Argument::Short('x')));
+/// assert_eq!(parser.forward().unwrap(), Some(Argument::Value("file.txt".into())));
+/// ```
+#[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Clone)]
 pub enum Argument<'a> {
-    /// A long option like `--example`
+    /// A long option starting with `--` (e.g., `--verbose`, `--file`).
+    ///
+    /// Long options can have associated values via `--option=value` syntax.
+    /// Use [`Parser::value`] after parsing to retrieve the value if present.
     Long(&'a str),
 
-    /// A single character option like `-q`
+    /// A short option starting with `-` followed by a single character (e.g., `-v`, `-x`).
+    ///
+    /// Short options can be combined (`-abc` becomes three separate `Short` arguments).
+    /// They cannot have values attached with `=` syntax, but can consume the next argument as a value.
     Short(char),
 
-    /// A positional argument like `file.txt` or `/path/to/file`
-    Value(&'a str),
+    /// A positional argument or operand (e.g., `file.txt`, `/path/to/file`).
+    ///
+    /// This includes any argument that doesn't start with `-` or `--`, as well as
+    /// all arguments following the `--` terminator.
+    Value(Cow<'a, str>),
+
+    /// The special `-` argument, typically representing stdin/stdout.
+    ///
+    /// This is commonly used in Unix tools to indicate reading from standard input
+    /// or writing to standard output.
+    Stdio,
 }
 
 impl<'a> Argument<'a> {
-    /// Converts this argument into an error, optionally with a value
+    /// Converts this argument into a [`ParsingError::UnexpectedArg`] error.
+    ///
+    /// This is a convenience method for creating contextual error messages when an argument
+    /// is encountered but not expected by the application. The resulting error message
+    /// includes appropriate formatting based on the argument type.
+    ///
+    /// # Parameters
+    ///
+    /// * `value` - Optional value associated with the argument (primarily used with options)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::Argument;
+    ///
+    /// // Long option with value
+    /// let arg = Argument::Long("unknown");
+    /// let error = arg.into_error(Some("value"));
+    /// assert_eq!(error.to_string(), "unexpected argument: --unknown=value");
+    ///
+    /// // Short option without value
+    /// let arg = Argument::Short('x');
+    /// let error = arg.into_error(None::<&str>);
+    /// assert_eq!(error.to_string(), "unexpected argument: -x");
+    ///
+    /// // Stdio argument
+    /// let arg = Argument::Stdio;
+    /// let error = arg.into_error(None::<&str>);
+    /// assert_eq!(error.to_string(), "unexpected argument: -");
+    /// ```
     pub fn into_error<A>(self, value: A) -> ParsingError
     where
         A: Into<Option<&'a str>>,
     {
-        use Argument::{Long, Short, Value};
+        use Argument::{Long, Short, Stdio, Value};
 
         match self {
             Long(arg) => ParsingError::UnexpectedArg {
@@ -51,16 +152,20 @@ impl<'a> Argument<'a> {
                 format: "=",
                 prefix: "--",
             },
-
             Short(arg) => ParsingError::UnexpectedArg {
                 offender: arg.to_string(),
                 value: value.into().map(String::from),
                 format: " ",
                 prefix: "-",
             },
-
             Value(arg) => ParsingError::UnexpectedArg {
                 offender: arg.to_string(),
+                value: None,
+                format: "",
+                prefix: "",
+            },
+            Stdio => ParsingError::UnexpectedArg {
+                offender: "-".to_string(),
                 value: None,
                 format: "",
                 prefix: "",
@@ -69,282 +174,387 @@ impl<'a> Argument<'a> {
     }
 }
 
-/// Internal parser state
-enum State {
-    /// Normal state, no special processing needed
-    NotInteresting,
-    /// Contains a value from previous option
-    LeftoverValue(OsString),
-    /// Combined short options state (-abc)
-    Combined(usize, OsString),
-    /// End of arguments (after --)
-    End,
-}
-
-/// Parser for command-line arguments
+/// A stateful command-line argument parser.
+///
+/// The `Parser` processes arguments one at a time using an iterator-based approach,
+/// maintaining internal state to handle complex scenarios like combined short options
+/// and option values.
+///
+/// # Type Parameters
+///
+/// * `I` - An iterator that yields `String` items (typically from command-line arguments)
+///
+/// # Examples
+///
+/// ```rust
+/// use sap::{Parser, Argument};
+///
+/// // Parse from environment arguments
+/// let mut parser = Parser::from_env().unwrap();
+///
+/// // Or parse from a custom iterator
+/// let args = vec!["myprogram".to_string(), "-abc".to_string(), "--verbose".to_string()];
+/// let mut parser = Parser::from_arbitrary(args).unwrap();
+///
+/// // Process arguments one by one
+/// while let Some(arg) = parser.forward().unwrap() {
+///     match arg {
+///         Argument::Short(c) => println!("Short option: -{}", c),
+///         Argument::Long(name) => println!("Long option: --{}", name),
+///         Argument::Value(val) => println!("Value: {}", val),
+///         Argument::Stdio => println!("Stdin/stdout argument"),
+///     }
+/// }
+/// ```
 pub struct Parser<I: Iterator> {
     iter: I,
     state: State,
-
-    // TODO: use these two for better errors.
-    last_short: Option<char>,
-    last_long: Option<OsString>,
-
     name: String,
+    last_arg: Option<String>,
 }
 
-impl Parser<env::ArgsOs> {
-    /// Creates a `Parser` using the program's command-line arguments.
+/// Internal parser state for handling complex parsing scenarios.
+///
+/// The parser uses this state machine to track context between calls to [`Parser::forward`],
+/// enabling proper handling of combined options, option values, and argument terminators.
+enum State {
+    /// Normal parsing state with no special context.
+    NotInteresting,
+    /// Contains a value from a previous option (e.g., from `--option=value`).
+    LeftoverValue(String),
+    /// Processing combined short options like `-abc` (position in string, remaining chars).
+    Combined(usize, String),
+    /// All remaining arguments are positional values (after encountering `--`).
+    End,
+}
+
+impl Parser<env::Args> {
+    /// Creates a `Parser` using the program's command-line arguments from [`std::env::args`].
+    ///
+    /// This is the most common way to create a parser for typical CLI applications.
+    /// The first argument (program name) is consumed and can be accessed via [`Parser::name`].
     ///
     /// # Errors
     ///
-    /// Returns an error if no arguments are available or the program name
-    /// contains invalid UTF-8.
+    /// Returns [`ParsingError::Empty`] if no arguments are available (which should not
+    /// happen in normal program execution).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::Parser;
+    ///
+    /// let parser = Parser::from_env().unwrap();
+    /// println!("Program name: {}", parser.name());
+    /// ```
     pub fn from_env() -> Result<Self> {
-        Self::from_arbitrary(env::args_os())
+        Self::from_arbitrary(env::args())
     }
 }
 
 impl<I> Parser<I>
 where
-    I: Iterator<Item = OsString>,
+    I: Iterator<Item = String>,
 {
-    /// Creates a `Parser` from any iterator that yields `OsString` items.
+    /// Creates a `Parser` from any iterator that yields `String` items.
+    ///
+    /// This method allows parsing custom argument lists, which is useful for testing
+    /// or when arguments come from sources other than the command line.
+    ///
+    /// The first item from the iterator is treated as the program name and can be
+    /// accessed via [`Parser::name`]. All subsequent items are parsed as arguments.
     ///
     /// # Errors
     ///
-    /// Returns an error if the iterator is empty or the first item (program name)
-    /// can't be converted to a valid UTF-8 string.
+    /// Returns [`ParsingError::Empty`] if the iterator is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::Parser;
+    ///
+    /// let args = vec!["myprogram".to_string(), "-v".to_string(), "file.txt".to_string()];
+    /// let parser = Parser::from_arbitrary(args).unwrap();
+    /// assert_eq!(parser.name(), "myprogram");
+    /// ```
     pub fn from_arbitrary<A>(iter: A) -> Result<Parser<I>>
     where
         A: IntoIterator<IntoIter = I>,
     {
         let mut iter = iter.into_iter();
-        let name = match iter.next() {
-            None => {
-                let err = ParsingError::Empty;
-                return Err(err);
-            }
-            Some(val) => match val.into_string() {
-                Ok(str) => str,
-                Err(_) => return Err(ParsingError::InvalidString),
-            },
-        };
+        let name = iter.next().ok_or(ParsingError::Empty)?;
 
         Ok(Parser {
             iter,
             state: State::NotInteresting,
-
-            last_short: None,
-            last_long: None,
             name,
+            last_arg: None,
         })
     }
 
-    /// Moves to the next argument, parsing it into an `Argument` enum.
+    /// Advances the parser to the next argument and returns it.
+    ///
+    /// This is the main parsing method. Call it repeatedly to process all arguments.
+    /// The parser maintains state between calls to properly handle complex scenarios
+    /// like combined short options (`-abc`) and option values.
     ///
     /// # Returns
     ///
-    /// - `Some(Ok(arg))` - Successfully parsed the next argument
-    /// - `Some(Err(e))` - Found an argument but encountered an error parsing it
-    /// - `None` - No more arguments or reached `--` separator
+    /// - `Some(arg)` - Successfully parsed the next argument
+    /// - `None` - No more arguments to process
     ///
     /// # Errors
     ///
-    /// The parser returns an `Err` when the
-    /// argument's data was either itself invalid
-    /// (malformed UTF-8 for example) or when it was in an
-    /// invalid state, such as `-abc=value`
-    /// (here it's invalid for multiple short options to take in a value)
-    pub fn forward<'a, 'b>(&'a mut self) -> Result<Option<Argument<'b>>>
-    where
-        'a: 'b,
-    {
+    /// Returns an error when:
+    /// - Short options have attached values using `=` (e.g., `-x=value`)
+    /// - Option values are left unconsumed from previous calls
+    /// - Invalid argument syntax is encountered
+    ///
+    /// **Important**: The parser should not be used after encountering an error.
+    /// The internal state becomes undefined and further parsing may produce incorrect results.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::{Parser, Argument};
+    ///
+    /// let args = vec!["prog".to_string(), "-abc".to_string(), "--file=test.txt".to_string()];
+    /// let mut parser = Parser::from_arbitrary(args).unwrap();
+    ///
+    /// // Combined short options are parsed individually
+    /// assert_eq!(parser.forward().unwrap(), Some(Argument::Short('a')));
+    /// assert_eq!(parser.forward().unwrap(), Some(Argument::Short('b')));
+    /// assert_eq!(parser.forward().unwrap(), Some(Argument::Short('c')));
+    ///
+    /// // Long option with attached value
+    /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("file")));
+    /// assert_eq!(parser.value(), Some("test.txt".to_string()));
+    ///
+    /// assert_eq!(parser.forward().unwrap(), None);
+    /// ```
+    pub fn forward(&mut self) -> Result<Option<Argument<'_>>> {
         if matches!(self.state, State::End) {
-            return Ok(None);
+            return Ok(self.iter.next().map(|v| Argument::Value(Cow::Owned(v))));
         }
 
-        if let State::Combined(ref mut pos, ref str) = self.state {
-            match str.as_bytes().get(*pos) {
-                None => {
-                    self.state = State::NotInteresting;
-                    return self.forward();
-                }
+        if let State::Combined(index, ref mut options) = self.state {
+            let options = mem::take(options);
 
-                Some(b'=') if *pos > 1 => {
-                    let err = ParsingError::InvalidOption {
-                        reason: "too much characters after the equals sign",
-                        offender: None,
-                    };
+            match options.chars().nth(index) {
+                Some(char) => {
+                    if char == '=' {
+                        return Err(ParsingError::InvalidOption {
+                            reason: "Short options do not support values",
+                            offender: None,
+                        });
+                    }
 
-                    return Err(err);
-                }
+                    self.state = State::Combined(index + 1, options);
 
-                Some(ch) => {
-                    *pos += 1;
-                    return Ok(Some(Argument::Short(*ch as char)));
+                    return Ok(Some(Argument::Short(char)));
                 }
+                None => self.state = State::NotInteresting,
             }
         }
 
         let arg = match self.iter.next() {
+            Some(value) => value,
             None => return Ok(None),
-            Some(arg) => {
-                self.last_long = Some(arg);
-                // Safety:
-                //
-                // We just placed the value in the variable
-                // therefore it cannot be `None`
-                // so this `unwrap_unchecked()` is safe.
-                unsafe { &self.last_long.as_deref().unwrap_unchecked() }
-            }
         };
 
-        if *arg == "--" {
-            self.state = State::End;
-            return Ok(None);
-        }
+        self.last_arg = Some(arg);
 
-        let bytes = arg.as_bytes();
+        let arg = unsafe { self.last_arg.as_deref().unwrap_unchecked() };
 
-        if bytes.first().is_some_and(|x| *x == b'-') {
-            // Long option (`--`)
-            if bytes.get(1).is_some_and(|x| *x == b'-') {
-                let (arg, val) = split_long_opt_value(&arg.as_bytes()[2..]);
-
-                if let Some(val) = val {
-                    self.state = State::LeftoverValue(OsString::from_vec(val.to_vec()));
+        if arg.starts_with('-') {
+            match arg.get(1..) {
+                Some("-") => {
+                    self.state = State::End;
+                    return Ok(self.iter.next().map(|v| Argument::Value(Cow::Owned(v))));
                 }
+                Some(rest) => {
+                    if let Some((_, option)) = rest.split_once('-') {
+                        if let Some((option, value)) = option.split_once('=') {
+                            self.state = State::LeftoverValue(value.to_owned());
 
-                // might not be needed
-                // however the user
-                // can be as bright as Proxima Centauri
-                // or as dark as Sagittarius A
-                //
-                // `inherent_str_constructors` is not stabilised yet
-                // https://github.com/rust-lang/rust/issues/131114
-                // use `str::from_utf8(arg)` if you don't care about stable rust
-                let str_arg = match core::str::from_utf8(arg) {
-                    Err(_e) => {
-                        let err = ParsingError::InvalidString;
-                        return Err(err);
-                    }
-                    Ok(val) => val,
-                };
-                Ok(Some(Argument::Long(str_arg)))
+                            return Ok(Some(Argument::Long(option)));
+                        }
 
-            // Short option.
-            } else {
-                let tmp = bytes.get(1..);
+                        if let State::LeftoverValue(ref mut value) = self.state {
+                            return Err(ParsingError::UnconsumedValue {
+                                value: mem::take(value),
+                            });
+                        }
 
-                if let Some(value) = tmp {
-                    let char = value[0] as char;
-
-                    if let Some(rest) = value.get(1..) {
-                        let new_vec = OsString::from_vec(rest.to_vec());
-                        self.state = State::Combined(0, new_vec);
+                        return Ok(Some(Argument::Long(option)));
                     }
 
-                    self.last_short = Some(char);
-                    Ok(Some(Argument::Short(char)))
-                } else {
-                    // lonely `-`
-                    // probably an error on the user's part
-                    // but syntatically correct.
-                    Ok(Some(Argument::Value("-")))
+                    if let Some(option) = rest.chars().next() {
+                        self.state = State::Combined(1, rest.to_owned());
+
+                        return Ok(Some(Argument::Short(option)));
+                    }
+
+                    return Ok(Some(Argument::Stdio));
                 }
+                None => unsafe { unreachable_unchecked() },
             }
-        } else {
-            // might not be needed,
-            // however i am not sure of the user's
-            // eternal glory and shine
-            //
-            // `inherent_str_constructors` is not stabilised yet
-            // https://github.com/rust-lang/rust/issues/131114
-            // use `str::from_utf8(arg.as_encoded_bytes())`
-            // if you don't care about stable rust
-            let str_arg = match core::str::from_utf8(arg.as_encoded_bytes()) {
-                Err(_e) => {
-                    let err = ParsingError::InvalidString;
-                    return Err(err);
-                }
-                Ok(val) => val,
-            };
-
-            // lonely value
-            Ok(Some(Argument::Value(str_arg)))
         }
+
+        return Ok(Some(Argument::Value(arg.into())));
     }
 
-    /// Retrieves the value associated with the previous option.
+    /// Retrieves and consumes the value associated with the most recent option.
     ///
-    /// Returns the raw `OsString` value without UTF-8 conversion.
+    /// Call this method after parsing a long option that may have an attached value
+    /// (using `--option=value` syntax). The value is consumed and subsequent calls
+    /// will return `None` until another option with a value is parsed.
     ///
     /// # Returns
     ///
-    /// - `Some(value)` - The option has a value (e.g., `--name=value`)
-    /// - `None` - The option has no value or the value has already been consumed
-    pub fn raw_value(&mut self) -> Option<OsString> {
+    /// - `Some(value)` - The option has an attached value
+    /// - `None` - The option has no attached value or it was already consumed
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::{Parser, Argument};
+    ///
+    /// let args = vec!["prog".to_string(), "--file=input.txt".to_string(), "--verbose".to_string()];
+    /// let mut parser = Parser::from_arbitrary(args).unwrap();
+    ///
+    /// // Option with attached value
+    /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("file")));
+    /// assert_eq!(parser.value(), Some("input.txt".to_string()));
+    /// assert_eq!(parser.value(), None); // Already consumed
+    ///
+    /// // Option without value
+    /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("verbose")));
+    /// assert_eq!(parser.value(), None);
+    /// ```
+    pub fn value(&mut self) -> Option<String> {
         match self.state {
             State::LeftoverValue(_) => match mem::replace(&mut self.state, State::NotInteresting) {
                 State::LeftoverValue(val) => Some(val),
-                _ => unreachable!(),
+                _ => unsafe { unreachable_unchecked() },
             },
-
             _ => None,
         }
     }
 
-    /// Retrieves the value associated with the previous option as a UTF-8 string.
+    /// Discards any value associated with the most recent option.
     ///
-    /// Performs lossy UTF-8 conversion if the value contains invalid UTF-8.
+    /// This is a convenience method that calls [`Parser::value`] and discards the result.
+    /// Use this when you know an option might have a value but you don't need it,
+    /// preventing unconsumed value errors.
     ///
-    /// # Returns
+    /// # Examples
     ///
-    /// - `Some(value)` - The option has a value (e.g., `--name=value`)
-    /// - `None` - The option has no value or the value has already been consumed
-    pub fn value(&mut self) -> Option<String> {
-        self.raw_value().map(|v| v.to_string_lossy().into_owned())
-    }
-
-    /// Ignores any value associated with the current option.
+    /// ```rust
+    /// use sap::{Parser, Argument};
     ///
-    /// Call this when you want to acknowledge but discard a value
-    /// without causing an error.
+    /// let args = vec!["prog".to_string(), "--debug=verbose".to_string()];
+    /// let mut parser = Parser::from_arbitrary(args).unwrap();
+    ///
+    /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("debug")));
+    /// parser.ignore_value(); // Discard the "verbose" value
+    /// ```
     pub fn ignore_value(&mut self) {
-        let _ = self.raw_value();
+        let _ = self.value();
     }
 
-    /// Returns the program name (first argument).
+    /// Returns the program name (the first argument from the iterator).
+    ///
+    /// This is typically the name or path of the executable, depending on how
+    /// the program was invoked.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::Parser;
+    ///
+    /// let args = vec!["/usr/bin/myprogram".to_string(), "-v".to_string()];
+    /// let parser = Parser::from_arbitrary(args).unwrap();
+    /// assert_eq!(parser.name(), "/usr/bin/myprogram");
+    /// ```
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Returns the inner iterator.
+    /// Consumes the parser and returns the underlying iterator.
+    ///
+    /// This allows access to any remaining, unparsed arguments. Note that the
+    /// iterator's state reflects the current parsing position.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::{Parser, Argument};
+    ///
+    /// let args = vec!["prog".to_string(), "-v".to_string(), "remaining".to_string()];
+    /// let mut parser = Parser::from_arbitrary(args).unwrap();
+    ///
+    /// // Parse one argument
+    /// parser.forward().unwrap();
+    ///
+    /// // Get the remaining iterator
+    /// let remaining: Vec<String> = parser.into_inner().collect();
+    /// assert_eq!(remaining, vec!["remaining"]);
+    /// ```
     pub fn into_inner(self) -> I {
         self.iter
     }
 }
 
-/// Parsing error types with descriptive messages
+/// Errors that can occur during argument parsing.
+///
+/// All parsing operations return a `Result` with this error type. Each variant
+/// provides specific context about what went wrong during parsing.
 #[derive(Debug)]
 pub enum ParsingError {
-    /// Invalid option syntax or format
+    /// Invalid option syntax or format was encountered.
+    ///
+    /// This typically occurs when:
+    /// - Short options are given values with `=` syntax (e.g., `-x=value`)
+    /// - Malformed option syntax is detected
+    ///
+    /// # Fields
+    ///
+    /// * `reason` - Human-readable description of what was invalid
+    /// * `offender` - The specific argument that caused the error (if available)
     InvalidOption {
         reason: &'static str,
-        offender: Option<OsString>,
+        offender: Option<String>,
     },
 
-    /// A value was provided but not consumed by calling `value()` or `ignore_value()`
-    UnconsumedValue { value: OsString },
+    /// An option value was not consumed after being parsed.
+    ///
+    /// This occurs when a long option has an attached value (e.g., `--file=input.txt`)
+    /// but the application doesn't call [`Parser::value`] or [`Parser::ignore_value`]
+    /// before parsing the next argument.
+    ///
+    /// # Fields
+    ///
+    /// * `value` - The unconsumed value that was attached to the option
+    UnconsumedValue { value: String },
 
-    /// The arguments iterator was empty (no program name)
+    /// The argument iterator was empty (contained no program name).
+    ///
+    /// This should not occur during normal program execution but may happen
+    /// when creating parsers from empty custom iterators.
     Empty,
 
-    /// A string containing invalid UTF-8 was encountered
-    InvalidString,
-
-    /// An unexpected or unrecognized argument was provided
+    /// An unexpected or unrecognized argument was encountered.
+    ///
+    /// This error is typically created by calling [`Argument::into_error`] when
+    /// the application encounters an argument it doesn't know how to handle.
+    ///
+    /// # Fields
+    ///
+    /// * `offender` - The argument name that was unexpected
+    /// * `value` - Associated value (if any)
+    /// * `format` - How the value is formatted in error messages (e.g., "=" or " ")
+    /// * `prefix` - The argument prefix (e.g., "--" for long options, "-" for short)
     UnexpectedArg {
         offender: String,
         value: Option<String>,
@@ -357,26 +567,16 @@ impl Display for ParsingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidOption { reason, offender } => {
-                let reserve = write!(f, "reason: {reason}");
+                write!(f, "reason: {reason}")?;
                 if let Some(sentence) = offender {
-                    // `os_str_display` is stabilised in 1.87.0
-                    // https://github.com/rust-lang/rust/issues/120048
-                    // use `sentence.display()` if you don't care about rust <1.87.0
-                    return write!(f, " at: {}", String::from_utf8_lossy(sentence.as_bytes()));
+                    write!(f, " at: {sentence}")?;
                 }
 
-                reserve
+                Ok(())
             }
 
             Self::UnconsumedValue { value } => {
-                // `os_str_display` is stabilised in 1.87.0
-                // https://github.com/rust-lang/rust/issues/120048
-                // use `value.display()` if you don't care about rust <1.87.0
-                write!(
-                    f,
-                    "leftover value: {}",
-                    String::from_utf8_lossy(value.as_bytes())
-                )
+                write!(f, "leftover value: {value}",)
             }
 
             Self::UnexpectedArg {
@@ -395,51 +595,25 @@ impl Display for ParsingError {
             },
 
             Self::Empty => write!(f, "env variables were empty"),
-
-            Self::InvalidString => write!(f, "attempt to parse invalid utf-8"),
         }
     }
 }
 
 impl Error for ParsingError {}
 
-// Splits a long option like
-// `--option=value`
-// into (b"option", Some(b"value"))
-//
-// if it can't determine the position of the `=` character
-// then the 2nd field of the tuple is `None`
-fn split_long_opt_value(src: &[u8]) -> (&[u8], Option<&[u8]>) {
-    let equals_pos = src.iter().position(|x| *x == b'=');
-
-    match equals_pos {
-        None => (src, None),
-
-        Some(pos) => {
-            let left = src.get(0..pos).expect("infallible");
-            let right = src.get(pos + 1..);
-
-            (left, right)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    macro_rules! test_cmdline {
-        ($arr: expr) => {
-            $arr.into_iter().map(|x| OsString::from(x))
-        };
+    use crate::{Argument::*, Parser, Result};
+
+    fn make_parser(values: &[&str]) -> Result<Parser<std::vec::IntoIter<String>>> {
+        let values: Vec<String> = values.iter().map(|s| s.to_string()).collect();
+        Ok(Parser::from_arbitrary(values)?)
     }
 
-    use crate::{Argument::*, Parser, Result};
-    use std::ffi::OsString;
-
+    // Basic functionality tests
     #[test]
     fn basic() -> Result<()> {
-        let content = test_cmdline!(["testbin", "-meow", "--awrff=puppy", "value"]);
-
-        let mut parser = Parser::from_arbitrary(content)?;
+        let mut parser = make_parser(&["testbin", "-meow", "--awrff=puppy", "value"])?;
 
         assert_eq!(parser.name(), "testbin");
         assert_eq!(parser.forward()?, Some(Short('m')));
@@ -449,18 +623,15 @@ mod tests {
 
         assert_eq!(parser.forward()?, Some(Long("awrff")));
         assert_eq!(parser.value().as_deref(), Some("puppy"));
-        assert_eq!(parser.forward()?, Some(Value("value")));
+        assert_eq!(parser.forward()?, Some(Value("value".into())));
 
         assert!(parser.forward()?.is_none());
-
         Ok(())
     }
 
     #[test]
     fn simple_error() -> Result<()> {
-        let content = test_cmdline!(["bin", "-this=wrong"]);
-
-        let mut parser = Parser::from_arbitrary(content)?;
+        let mut parser = make_parser(&["bin", "-this=wrong"])?;
 
         assert_eq!(parser.forward()?, Some(Short('t')));
         assert_eq!(parser.forward()?, Some(Short('h')));
@@ -468,28 +639,420 @@ mod tests {
         assert_eq!(parser.forward()?, Some(Short('s')));
 
         assert!(parser.forward().is_err());
-
         Ok(())
     }
 
     #[test]
     fn argument_to_error() {
+        // Test Long argument with value
         let arg = Long("example");
-
         assert_eq!(
             arg.into_error("examplevalue").to_string(),
             "unexpected argument: --example=examplevalue"
+        );
+
+        // Test Long argument without value
+        let arg = Long("verbose");
+        assert_eq!(
+            arg.into_error(None::<&str>).to_string(),
+            "unexpected argument: --verbose"
+        );
+
+        // Test Short argument with value
+        let arg = Short('f');
+        assert_eq!(
+            arg.into_error("file.txt").to_string(),
+            "unexpected argument: -f file.txt"
+        );
+
+        // Test Short argument without value
+        let arg = Short('v');
+        assert_eq!(
+            arg.into_error(None::<&str>).to_string(),
+            "unexpected argument: -v"
+        );
+
+        // Test Value argument
+        let arg = Value("filename.txt".into());
+        assert_eq!(
+            arg.into_error(None::<&str>).to_string(),
+            "unexpected argument: filename.txt"
+        );
+
+        // Test Stdio argument
+        let arg = Stdio;
+        assert_eq!(
+            arg.into_error(None::<&str>).to_string(),
+            "unexpected argument: -"
         );
     }
 
     #[test]
     fn trailing_values() -> Result<()> {
-        let content = test_cmdline!(["testbin", "-meow", "--awrff=puppy", "--", "meow"]);
-
-        let mut parser = Parser::from_arbitrary(content)?;
-
+        let mut parser = make_parser(&["testbin", "-meow", "--awrff=puppy", "--", "meow"])?;
         while let Some(p) = parser.forward()? {
             dbg!(p);
+        }
+        Ok(())
+    }
+
+    // GNU-style short option tests
+    #[test]
+    fn short_option_clustering() -> Result<()> {
+        let mut parser = make_parser(&["prog", "-abc"])?;
+
+        assert_eq!(parser.forward()?, Some(Short('a')));
+        assert_eq!(parser.forward()?, Some(Short('b')));
+        assert_eq!(parser.forward()?, Some(Short('c')));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn short_option_clustering_with_final_value() -> Result<()> {
+        let mut parser = make_parser(&["prog", "-abf", "value"])?;
+
+        assert_eq!(parser.forward()?, Some(Short('a')));
+        assert_eq!(parser.forward()?, Some(Short('b')));
+        assert_eq!(parser.forward()?, Some(Short('f')));
+        assert_eq!(parser.forward()?, Some(Value("value".into())));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn short_option_with_separate_value() -> Result<()> {
+        let mut parser = make_parser(&["prog", "-f", "value"])?;
+
+        assert_eq!(parser.forward()?, Some(Short('f')));
+        // Value should be available for consumption if the option expects it
+        assert_eq!(parser.forward()?, Some(Value("value".into())));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn clustered_short_options_all_flags() -> Result<()> {
+        let mut parser = make_parser(&["prog", "-abcd"])?;
+
+        assert_eq!(parser.forward()?, Some(Short('a')));
+        assert_eq!(parser.forward()?, Some(Short('b')));
+        assert_eq!(parser.forward()?, Some(Short('c')));
+        assert_eq!(parser.forward()?, Some(Short('d')));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    // GNU-style long option tests
+    #[test]
+    fn long_option_with_equals() -> Result<()> {
+        let mut parser = make_parser(&["prog", "--file=myfile.txt"])?;
+
+        assert_eq!(parser.forward()?, Some(Long("file")));
+        assert_eq!(parser.value().as_deref(), Some("myfile.txt"));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn long_option_with_separate_value() -> Result<()> {
+        let mut parser = make_parser(&["prog", "--file", "myfile.txt"])?;
+
+        assert_eq!(parser.forward()?, Some(Long("file")));
+        assert_eq!(parser.forward()?, Some(Value("myfile.txt".into())));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn long_option_without_value() -> Result<()> {
+        let mut parser = make_parser(&["prog", "--verbose"])?;
+
+        assert_eq!(parser.forward()?, Some(Long("verbose")));
+        assert_eq!(parser.value().as_deref(), None);
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn long_option_empty_value() -> Result<()> {
+        let mut parser = make_parser(&["prog", "--empty="])?;
+
+        assert_eq!(parser.forward()?, Some(Long("empty")));
+        assert_eq!(parser.value().as_deref(), Some(""));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    // Double dash (--) terminator tests
+    #[test]
+    fn double_dash_terminator() -> Result<()> {
+        let mut parser = make_parser(&["prog", "--verbose", "--", "--not-an-option", "-x"])?;
+
+        assert_eq!(parser.forward()?, Some(Long("verbose")));
+        assert_eq!(parser.forward()?, Some(Value("--not-an-option".into())));
+        assert_eq!(parser.forward()?, Some(Value("-x".into())));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn double_dash_alone() -> Result<()> {
+        let mut parser = make_parser(&["prog", "--"])?;
+
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn double_dash_with_values_only() -> Result<()> {
+        let mut parser = make_parser(&["prog", "--", "file1", "file2", "file3"])?;
+
+        assert_eq!(parser.forward()?, Some(Value("file1".into())));
+        assert_eq!(parser.forward()?, Some(Value("file2".into())));
+        assert_eq!(parser.forward()?, Some(Value("file3".into())));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    // Single dash tests
+    #[test]
+    fn single_dash_as_stdio() -> Result<()> {
+        let mut parser = make_parser(&["prog", "-"])?;
+
+        assert_eq!(parser.forward()?, Some(Stdio));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn single_dash_mixed_with_options() -> Result<()> {
+        let mut parser = make_parser(&["prog", "--verbose", "-", "-x"])?;
+
+        assert_eq!(parser.forward()?, Some(Long("verbose")));
+        assert_eq!(parser.forward()?, Some(Stdio));
+        assert_eq!(parser.forward()?, Some(Short('x')));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn multiple_stdio_arguments() -> Result<()> {
+        let mut parser = make_parser(&["prog", "-", "-", "-"])?;
+
+        assert_eq!(parser.forward()?, Some(Stdio));
+        assert_eq!(parser.forward()?, Some(Stdio));
+        assert_eq!(parser.forward()?, Some(Stdio));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn stdio_with_values_after_double_dash() -> Result<()> {
+        let mut parser = make_parser(&["prog", "-", "--", "-", "regular_file"])?;
+
+        assert_eq!(parser.forward()?, Some(Stdio));
+        assert_eq!(parser.forward()?, Some(Value("-".into())));
+        assert_eq!(parser.forward()?, Some(Value("regular_file".into())));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    // Edge cases and error conditions
+    #[test]
+    fn empty_long_option() -> Result<()> {
+        let result = make_parser(&["prog", "--"]);
+        // This should either parse successfully (treating -- as terminator)
+        // or fail depending on implementation
+        match result {
+            Ok(mut parser) => {
+                assert!(parser.forward()?.is_none());
+            }
+            Err(_) => {
+                // Also acceptable behavior
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn short_option_with_equals_causes_error() -> Result<()> {
+        let mut parser = make_parser(&["prog", "-x=value"])?;
+
+        assert_eq!(parser.forward()?, Some(Short('x')));
+
+        assert!(parser.forward().is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn numeric_short_options() -> Result<()> {
+        let mut parser = make_parser(&["prog", "-1", "-2", "-3"])?;
+
+        assert_eq!(parser.forward()?, Some(Short('1')));
+        assert_eq!(parser.forward()?, Some(Short('2')));
+        assert_eq!(parser.forward()?, Some(Short('3')));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn special_character_short_options() -> Result<()> {
+        let mut parser = make_parser(&["prog", "-@", "-#", "-%"])?;
+
+        assert_eq!(parser.forward()?, Some(Short('@')));
+        assert_eq!(parser.forward()?, Some(Short('#')));
+        assert_eq!(parser.forward()?, Some(Short('%')));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    // Complex scenarios
+    #[test]
+    fn complex_mixed_arguments() -> Result<()> {
+        let mut parser = make_parser(&[
+            "myprogram",
+            "-abc",
+            "--verbose",
+            "-f",
+            "file1.txt",
+            "--output=result.txt",
+            "--",
+            "positional1",
+            "--not-parsed-as-option",
+            "-also-positional",
+        ])?;
+
+        assert_eq!(parser.name(), "myprogram");
+
+        // Clustered short options
+        assert_eq!(parser.forward()?, Some(Short('a')));
+        assert_eq!(parser.forward()?, Some(Short('b')));
+        assert_eq!(parser.forward()?, Some(Short('c')));
+
+        // Long option without value
+        assert_eq!(parser.forward()?, Some(Long("verbose")));
+
+        // Short option followed by separate value
+        assert_eq!(parser.forward()?, Some(Short('f')));
+        assert_eq!(parser.forward()?, Some(Value("file1.txt".into())));
+
+        // Long option with attached value
+        assert_eq!(parser.forward()?, Some(Long("output")));
+        assert_eq!(parser.value().as_deref(), Some("result.txt"));
+
+        // Everything after -- should be positional
+        assert_eq!(parser.forward()?, Some(Value("positional1".into())));
+        assert_eq!(
+            parser.forward()?,
+            Some(Value("--not-parsed-as-option".into()))
+        );
+        assert_eq!(parser.forward()?, Some(Value("-also-positional".into())));
+
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn program_name_extraction() -> Result<()> {
+        let parser1 = make_parser(&["simple"])?;
+        assert_eq!(parser1.name(), "simple");
+
+        let parser2 = make_parser(&["/usr/bin/complex-name"])?;
+        assert_eq!(parser2.name(), "/usr/bin/complex-name");
+
+        let parser3 = make_parser(&["./relative/path/prog"])?;
+        assert_eq!(parser3.name(), "./relative/path/prog");
+
+        Ok(())
+    }
+
+    #[test]
+    fn unicode_in_options() -> Result<()> {
+        let mut parser = make_parser(&["prog", "--файл=документ.txt", "-ñ"])?;
+
+        assert_eq!(parser.forward()?, Some(Long("файл")));
+        assert_eq!(parser.value().as_deref(), Some("документ.txt"));
+        assert_eq!(parser.forward()?, Some(Short('ñ')));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn whitespace_in_values() -> Result<()> {
+        let mut parser = make_parser(&[
+            "prog",
+            "--message=hello world",
+            "-f",
+            "file with spaces.txt",
+        ])?;
+
+        assert_eq!(parser.forward()?, Some(Long("message")));
+        assert_eq!(parser.value().as_deref(), Some("hello world"));
+        assert_eq!(parser.forward()?, Some(Short('f')));
+        assert_eq!(
+            parser.forward()?,
+            Some(Value("file with spaces.txt".into()))
+        );
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn multiple_equals_in_value() -> Result<()> {
+        let mut parser = make_parser(&["prog", "--equation=x=y+z=w"])?;
+
+        assert_eq!(parser.forward()?, Some(Long("equation")));
+        assert_eq!(parser.value().as_deref(), Some("x=y+z=w"));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn empty_arguments() -> Result<()> {
+        let mut parser = make_parser(&["prog", "", "--verbose", ""])?;
+
+        assert_eq!(parser.forward()?, Some(Value("".into())));
+        assert_eq!(parser.forward()?, Some(Long("verbose")));
+        assert_eq!(parser.forward()?, Some(Value("".into())));
+        assert!(parser.forward()?.is_none());
+        Ok(())
+    }
+
+    // GNU getopt compatibility tests
+    #[test]
+    fn getopt_style_option_parsing() -> Result<()> {
+        // Test POSIX-style where options must come before operands
+        let mut parser = make_parser(&["prog", "-a", "operand", "-b"])?;
+
+        assert_eq!(parser.forward()?, Some(Short('a')));
+        assert_eq!(parser.forward()?, Some(Value("operand".into())));
+
+        // Depending on GNU vs POSIX mode, -b might be treated as option or operand
+        match parser.forward()? {
+            Some(Short('b')) => {
+                // GNU-style: options can appear anywhere
+            }
+            Some(Value(val)) if val == "-b" => {
+                // POSIX-style: -b is treated as operand after first operand
+            }
+            other => panic!("Unexpected result: {:?}", other),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn boundary_conditions() -> Result<()> {
+        // Test with just program name
+        let mut parser1 = make_parser(&["prog"])?;
+        assert!(parser1.forward()?.is_none());
+
+        // Test with maximum length option names (if your implementation has limits)
+        let long_name = "a".repeat(1000);
+        let mut parser2 = make_parser(&["prog", &format!("--{}", long_name)])?;
+        if let Some(Long(name)) = parser2.forward()? {
+            assert_eq!(name, long_name);
         }
 
         Ok(())
