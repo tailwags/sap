@@ -144,6 +144,10 @@ fn print_help(program_name: &str) {
 }
 ```
 
+## 🔍 Real-World Examples
+
+For comprehensive examples of Sap in action, check out [**puppyutils**](https://github.com/puppyutils/puppyutils) - a collection of Unix utilities reimplemented in Rust. Sap was originally created as the argument parser for this project, so you'll find extensive real-world usage patterns.
+
 ## 🤝 Acknowledgments
 
 Special thanks to [Esther](https://github.com/esther-ff) who wrote the original parser design for this library <3
