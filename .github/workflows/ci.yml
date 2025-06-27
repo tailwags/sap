@@ -18,13 +18,31 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Run tests
-        run: cargo nextest run --all-features
+        run: cargo nextest run --no-fail-fast
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Check clippy
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy
+
+  test-miri:
+    name: Run tests with miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout
+
+      - name: Setup rust
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: Add miri components
+        run: rustup +nightly component add miri rust-src
+
+      - name: Install nextest to run tests
+        uses: taiki-e/install-action@nextest
+
+      - name: Run tests
+        run: cargo +nightly miri nextest run --no-fail-fast
 
   msrv:
     name: MSRV check (1.85)
@@ -35,8 +53,11 @@ jobs:
       - name: Setup MSRV rust
         run: rustup toolchain install 1.85 --profile minimal
 
+      - name: Install nextest to run tests
+        uses: taiki-e/install-action@nextest
+
       - name: Check build with MSRV
-        run: cargo +1.85 check --all-targets --all-features
+        run: cargo +1.85 check
 
       - name: Check tests compile with MSRV
-        run: cargo +1.85 test --all-features --no-run
+        run: cargo +1.85 nextest run --no-fail-fast
