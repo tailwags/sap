@@ -1,6 +1,6 @@
 # 🌿 Sap
 
-_A small, sweet argument parser for Rust_
+_A small, simple and sweet argument parser for Rust_
 
 [![Crates.io](https://img.shields.io/crates/v/sap.svg)](https://crates.io/crates/sap)
 [![Documentation](https://docs.rs/sap/badge.svg)](https://docs.rs/sap)
