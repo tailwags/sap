@@ -62,7 +62,7 @@ use std::{
 ///     Ok("config".to_string())
 /// }
 /// ```
-pub type Result<T, E = ParsingError> = core::result::Result<T, E>;
+pub type Result<T, E = ParsingError<'static>> = core::result::Result<T, E>;
 
 /// Represents a parsed command-line argument.
 ///
@@ -138,7 +138,7 @@ impl<'a> Argument<'a> {
     /// let error = arg.into_error(None::<&str>);
     /// assert_eq!(error.to_string(), "unexpected argument: -");
     /// ```
-    pub fn into_error<A>(self, value: A) -> ParsingError
+    pub fn into_error<A>(self, value: A) -> ParsingError<'static>
     where
         A: Into<Option<&'a str>>,
     {
@@ -146,25 +146,25 @@ impl<'a> Argument<'a> {
 
         match self {
             Long(arg) => ParsingError::UnexpectedArg {
-                offender: arg.to_string(),
-                value: value.into().map(String::from),
+                offender: Cow::Owned(arg.to_string()),
+                value: value.into().map(String::from).map(Cow::Owned),
                 format: "=",
                 prefix: "--",
             },
             Short(arg) => ParsingError::UnexpectedArg {
-                offender: arg.to_string(),
-                value: value.into().map(String::from),
+                offender: Cow::Owned(arg.to_string()),
+                value: value.into().map(String::from).map(Cow::Owned),
                 format: " ",
                 prefix: "-",
             },
             Value(arg) => ParsingError::UnexpectedArg {
-                offender: arg.to_string(),
+                offender: Cow::Owned(arg.to_string()),
                 value: None,
                 format: "",
                 prefix: "",
             },
             Stdio => ParsingError::UnexpectedArg {
-                offender: "-".to_string(),
+                offender: Cow::Borrowed("-"),
                 value: None,
                 format: "",
                 prefix: "",
@@ -393,7 +393,7 @@ where
 
                         if let State::LeftoverValue(ref mut value) = self.state {
                             return Err(ParsingError::UnconsumedValue {
-                                value: mem::take(value),
+                                value: Cow::Owned(mem::take(value)),
                             });
                         }
 
@@ -518,7 +518,7 @@ where
 /// All parsing operations return a `Result` with this error type. Each variant
 /// provides specific context about what went wrong during parsing.
 #[derive(Debug)]
-pub enum ParsingError {
+pub enum ParsingError<'a> {
     /// Invalid option syntax or format was encountered.
     ///
     /// This typically occurs when:
@@ -531,7 +531,7 @@ pub enum ParsingError {
     /// * `offender` - The specific argument that caused the error (if available)
     InvalidOption {
         reason: &'static str,
-        offender: Option<String>,
+        offender: Option<Cow<'a, str>>,
     },
 
     /// An option value was not consumed after being parsed.
@@ -543,7 +543,7 @@ pub enum ParsingError {
     /// # Fields
     ///
     /// * `value` - The unconsumed value that was attached to the option
-    UnconsumedValue { value: String },
+    UnconsumedValue { value: Cow<'a, str> },
 
     /// The argument iterator was empty (contained no program name).
     ///
@@ -563,14 +563,14 @@ pub enum ParsingError {
     /// * `format` - How the value is formatted in error messages (e.g., "=" or " ")
     /// * `prefix` - The argument prefix (e.g., "--" for long options, "-" for short)
     UnexpectedArg {
-        offender: String,
-        value: Option<String>,
+        offender: Cow<'a, str>,
+        value: Option<Cow<'a, str>>,
         format: &'static str,
         prefix: &'static str,
     },
 }
 
-impl Display for ParsingError {
+impl Display for ParsingError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidOption { reason, offender } => {
@@ -606,7 +606,7 @@ impl Display for ParsingError {
     }
 }
 
-impl Error for ParsingError {}
+impl Error for ParsingError<'_> {}
 
 #[cfg(test)]
 mod tests {
