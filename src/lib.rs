@@ -44,7 +44,7 @@ use std::{
     error::Error,
     fmt::{Debug, Display},
     hint::unreachable_unchecked,
-    mem,
+    io, mem,
 };
 
 /// A [`Result`] type alias using [`ParsingError`] as the default error type.
@@ -352,7 +352,7 @@ where
                     if char == '=' {
                         return Err(ParsingError::InvalidOption {
                             reason: "Short options do not support values",
-                            offender: None,
+                            offender: Cow::Borrowed("="),
                         });
                     }
 
@@ -393,6 +393,7 @@ where
 
                         if let State::LeftoverValue(ref mut value) = self.state {
                             return Err(ParsingError::UnconsumedValue {
+                                option_name: Cow::Owned(rest.to_owned()),
                                 value: Cow::Owned(mem::take(value)),
                             });
                         }
@@ -531,7 +532,7 @@ pub enum ParsingError<'a> {
     /// * `offender` - The specific argument that caused the error (if available)
     InvalidOption {
         reason: &'static str,
-        offender: Option<Cow<'a, str>>,
+        offender: Cow<'a, str>,
     },
 
     /// An option value was not consumed after being parsed.
@@ -543,7 +544,10 @@ pub enum ParsingError<'a> {
     /// # Fields
     ///
     /// * `value` - The unconsumed value that was attached to the option
-    UnconsumedValue { value: Cow<'a, str> },
+    UnconsumedValue {
+        option_name: Cow<'a, str>,
+        value: Cow<'a, str>,
+    },
 
     /// The argument iterator was empty (contained no program name).
     ///
@@ -575,15 +579,13 @@ impl Display for ParsingError<'_> {
         match self {
             Self::InvalidOption { reason, offender } => {
                 write!(f, "reason: {reason}")?;
-                if let Some(sentence) = offender {
-                    write!(f, " at: {sentence}")?;
-                }
+                write!(f, " at: {offender}")?;
 
                 Ok(())
             }
 
-            Self::UnconsumedValue { value } => {
-                write!(f, "leftover value: {value}",)
+            Self::UnconsumedValue { option_name, value } => {
+                write!(f, "leftover value: {value} for option {option_name}",)
             }
 
             Self::UnexpectedArg {
@@ -608,9 +610,76 @@ impl Display for ParsingError<'_> {
 
 impl Error for ParsingError<'_> {}
 
+impl ParsingError<'_> {
+    /// Writes a GNU-like error message into `w`
+    ///
+    /// # Errors
+    ///
+    /// To simplify the return type, this function returns `io::ErrorKind::NotFound` when it cannot
+    /// write an error to `w` because of the lack of a proper GNU-style representation for it.
+    /// Currently this only happens to the `ParsingError::Empty` variant.
+    ///
+    /// Any other error from `io::ErrorKind` signifies a failure coming from the underlying writer provided
+    /// via the `w` argument.
+    ///
+    pub fn gnu_error<W>(&self, w: &mut W, name: &str) -> std::io::Result<()>
+    where
+        W: io::Write,
+    {
+        match self {
+            // no GNU representation for this one
+            ParsingError::Empty => return Err(io::ErrorKind::NotFound.into()),
+
+            ParsingError::UnconsumedValue { option_name, .. } => {
+                writeln!(
+                    w,
+                    "{name}: option '--{option_name}' doesn't allow an argument"
+                )
+            }
+
+            ParsingError::InvalidOption { offender, .. } => {
+                writeln!(w, "{name}: invalid option -- '{offender}'")
+            }
+
+            ParsingError::UnexpectedArg { offender, .. } => {
+                writeln!(w, "{name}: unrecognized option '{offender}'")
+            }
+        }?;
+
+        writeln!(w, "Try '{name} --help' for more information.").map_err(Into::into)
+    }
+
+    /// Produces a `Vec<u8>` containing a GNU-style error message.
+    ///
+    /// This function returns a `Vec<u8>` instead of a `String` due
+    /// to the lack of guarantee that the option name will be proper UTF-8.
+    ///
+    /// # Errors
+    ///
+    /// To simplify the return type, this function returns `io::ErrorKind::NotFound` when it cannot
+    /// write an error to `w` because of the lack of a proper GNU-style representation for it.
+    /// Currently this only happens to the `ParsingError::Empty` variant.
+    #[must_use]
+    pub fn gnu_error_as_vec(&self, name: &str) -> Option<Vec<u8>> {
+        let mut buf = Vec::new();
+
+        match self.gnu_error(&mut buf, name) {
+            Ok(()) => Some(buf),
+
+            Err(err) => match err.kind() {
+                io::ErrorKind::NotFound => None,
+
+                _ => unreachable!(
+                    "any other errors here are impossible, due to `io::Write::write` being infallible as far as `Result<T, E>` is concerned"
+                ),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{Argument::*, Parser, Result};
+    use crate::{Argument::*, Parser, ParsingError, Result};
 
     #[test]
     fn parser_creation() -> Result<()> {
@@ -891,6 +960,64 @@ mod tests {
         if let Some(Long(name)) = parser.forward()? {
             assert_eq!(name, long_name);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_error_unrecognized_option() -> Result<()> {
+        const CMP: &str = "error_program: unrecognized option 'error'\n\
+        Try 'error_program --help' for more information.\n";
+
+        let bytes = Long("error")
+            .into_error("not_important_for_this_test")
+            .gnu_error_as_vec("error_program")
+            .expect("couldn't process the error into a GNU error message");
+
+        let error_string = core::str::from_utf8(&bytes)
+            .expect("the produced `Vec` from the error, contained invalid UTF-8");
+
+        assert_eq!(error_string, CMP, "the produced error was invalid");
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_error_invalid_option() -> Result<()> {
+        const CMP: &str = "error_program: invalid option -- '='\n\
+        Try 'error_program --help' for more information.\n";
+
+        let bytes = ParsingError::InvalidOption {
+            reason: "not_important_for_this_test",
+            offender: "=".into(),
+        }
+        .gnu_error_as_vec("error_program")
+        .expect("couldn't process the error into a GNU error message");
+
+        let error_string = core::str::from_utf8(&bytes)
+            .expect("the produced `Vec` from the error, contained invalid UTF-8");
+
+        assert_eq!(error_string, CMP, "the produced error was invalid");
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_error_leftover_value() -> Result<()> {
+        const CMP: &str = "error_program: option '--fallible' doesn't allow an argument\n\
+        Try 'error_program --help' for more information.\n";
+
+        let bytes = ParsingError::UnconsumedValue {
+            option_name: "fallible".into(),
+            value: "not_important_for_this_test".into(),
+        }
+        .gnu_error_as_vec("error_program")
+        .expect("couldn't process the error into a GNU error message");
+
+        let error_string = core::str::from_utf8(&bytes)
+            .expect("the produced `Vec` from the error, contained invalid UTF-8");
+
+        assert_eq!(error_string, CMP, "the produced error was invalid");
+
         Ok(())
     }
 }
