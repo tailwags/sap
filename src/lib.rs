@@ -1,5 +1,6 @@
 #![warn(clippy::pedantic)]
 #![warn(clippy::complexity)]
+#![cfg_attr(not(feature = "std"), no_std)]
 //! # Sap - a Small Argument Parser
 //!
 //! A minimal, zero-dependency Unix command-line argument parser for Rust.
@@ -38,13 +39,18 @@
 //! }
 //! ```
 
-use std::{
-    borrow::Cow,
-    env,
-    error::Error,
-    fmt::{Debug, Display},
-    hint::unreachable_unchecked,
-    mem,
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+use core::{error::Error, fmt::Display, hint::unreachable_unchecked, mem};
+
+#[cfg(feature = "std")]
+use std::{borrow::Cow, env, fmt::Debug};
+
+#[cfg(not(feature = "std"))]
+use alloc::{
+    borrow::{Cow, ToOwned},
+    string::{String, ToString},
 };
 
 /// A [`Result`] type alias using [`ParsingError`] as the default error type.
@@ -226,6 +232,7 @@ enum State {
     End,
 }
 
+#[cfg(feature = "std")]
 impl Parser<env::Args> {
     /// Creates a `Parser` using the program's command-line arguments from [`std::env::args`].
     ///
@@ -571,7 +578,7 @@ pub enum ParsingError {
 }
 
 impl Display for ParsingError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::InvalidOption { reason, offender } => {
                 write!(f, "reason: {reason}")?;
@@ -608,6 +615,7 @@ impl Display for ParsingError {
 
 impl Error for ParsingError {}
 
+#[cfg(feature = "std")]
 #[cfg(test)]
 mod tests {
     use crate::{Argument::*, Parser, Result};
