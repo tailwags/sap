@@ -174,34 +174,6 @@ impl<'a> Argument<'a> {
 }
 
 impl Display for Argument<'_> {
-    /// Outputs a representation of the argument that approximates the original string.
-    ///
-    /// This function manually attempts to recreate the original string that was parsed into this
-    /// argument. It doesn't necessarily have to reflect the original, which is the case with
-    /// values like `--option=value` - the `=` will be lost.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use std::borrow::Cow;
-    /// use sap::Argument;
-    ///
-    /// // Long option
-    /// let arg = Argument::Long("foo");
-    /// assert_eq!(arg.to_string(), "--foo");
-    ///
-    /// // Short option
-    /// let arg = Argument::Short('o');
-    /// assert_eq!(arg.to_string(), "-o");
-    ///
-    /// // Value argument
-    /// let arg = Argument::Value(Cow::Borrowed("bar"));
-    /// assert_eq!(arg.to_string(), "bar");
-    ///
-    /// // Stdio argument
-    /// let arg = Argument::Stdio;
-    /// assert_eq!(arg.to_string(), "-");
-    /// ```
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Argument::{Long, Short, Stdio, Value};
 
