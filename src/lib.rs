@@ -173,6 +173,19 @@ impl<'a> Argument<'a> {
     }
 }
 
+impl Display for Argument<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Argument::{Long, Short, Stdio, Value};
+
+        match self {
+            Long(s) => write!(f, "--{s}"),
+            Short(ch) => write!(f, "-{ch}"),
+            Value(cow) => write!(f, "{cow}"),
+            Stdio => write!(f, "-"),
+        }
+    }
+}
+
 /// A stateful command-line argument parser.
 ///
 /// The `Parser` processes arguments one at a time using an iterator-based approach,
