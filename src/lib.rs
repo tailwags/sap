@@ -42,7 +42,7 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use core::{error::Error, fmt::Display, hint::unreachable_unchecked, mem};
+use core::{error::Error, fmt::Display, iter::Peekable, mem};
 
 #[cfg(feature = "std")]
 use std::{borrow::Cow, env, fmt::Debug};
@@ -224,10 +224,10 @@ impl Display for Argument<'_> {
 /// }
 /// ```
 pub struct Parser<I: Iterator> {
-    iter: I,
+    iter: Peekable<I>,
     state: State,
     name: String,
-    last_arg: Option<String>,
+    last_arg: String,
 }
 
 /// Internal parser state for handling complex parsing scenarios.
@@ -243,6 +243,8 @@ enum State {
     Combined(usize, String),
     /// All remaining arguments are positional values (after encountering `--`).
     End,
+    /// Parser encountered an error and stopped consuming from the underlying iterator.
+    Poisoned,
 }
 
 #[cfg(feature = "std")]
@@ -270,10 +272,10 @@ impl Parser<env::Args> {
     }
 }
 
-impl<I, V> Parser<I>
+impl<'a, 'v: 'a, I, V> Parser<I>
 where
     I: Iterator<Item = V>,
-    V: Into<String>,
+    V: Into<Cow<'v, str>> + AsRef<str>,
 {
     /// Creates a `Parser` from any iterator that yields items convertible to `String`.
     ///
@@ -306,14 +308,14 @@ where
     where
         A: IntoIterator<IntoIter = I>,
     {
-        let mut iter = iter.into_iter();
-        let name = iter.next().ok_or(ParsingError::Empty)?.into();
+        let mut iter = iter.into_iter().peekable();
+        let name = iter.next().ok_or(ParsingError::Empty)?.into().into_owned();
 
         Ok(Parser {
             iter,
             state: State::NotInteresting,
             name,
-            last_arg: None,
+            last_arg: String::new(),
         })
     }
 
@@ -335,8 +337,15 @@ where
     /// - Option values are left unconsumed from previous calls
     /// - Invalid argument syntax is encountered
     ///
-    /// **Important**: The parser should not be used after encountering an error.
-    /// The internal state becomes undefined and further parsing may produce incorrect results.
+    /// ## Poisoned State
+    ///
+    /// After returning an error, the parser enters a "poisoned" state where:
+    /// - All subsequent calls to `forward()` will return `Ok(None)`
+    /// - The underlying iterator will not be polled further
+    /// - The iterator can still be recovered using [`Parser::into_inner`] if needed
+    ///
+    /// This ensures predictable behavior after errors and allows recovering the
+    /// remaining unparsed arguments without risking inconsistent parser state.
     ///
     /// # Examples
     ///
@@ -356,83 +365,75 @@ where
     ///
     /// assert_eq!(parser.forward().unwrap(), None);
     /// ```
-    pub fn forward(&mut self) -> Result<Option<Argument<'_>>> {
-        if matches!(self.state, State::End) {
-            return Ok(self
-                .iter
-                .next()
-                .map(|v| Argument::Value(Cow::Owned(v.into()))));
-        }
+    pub fn forward(&'a mut self) -> Result<Option<Argument<'a>>> {
+        loop {
+            match self.state {
+                State::Poisoned => return Ok(None),
+                State::End => {
+                    return Ok(self.iter.next().map(|v| Argument::Value(v.into())));
+                }
+                State::Combined(index, ref mut options) => {
+                    let options = mem::take(options);
 
-        if let State::Combined(index, ref mut options) = self.state {
-            let options = mem::take(options);
+                    match options.chars().nth(index) {
+                        Some(char) => {
+                            if char == '=' {
+                                self.state = State::Poisoned;
 
-            match options.chars().nth(index) {
-                Some(char) => {
-                    if char == '=' {
-                        return Err(ParsingError::InvalidOption {
-                            reason: "Short options do not support values",
-                            offender: None,
-                        });
+                                return Err(ParsingError::InvalidOption {
+                                    reason: "Short options do not support values",
+                                    offender: None,
+                                });
+                            }
+
+                            self.state = State::Combined(index + 1, options);
+
+                            return Ok(Some(Argument::Short(char)));
+                        }
+                        None => self.state = State::NotInteresting,
                     }
-
-                    self.state = State::Combined(index + 1, options);
-
-                    return Ok(Some(Argument::Short(char)));
                 }
-                None => self.state = State::NotInteresting,
-            }
-        }
+                State::NotInteresting => {
+                    let next = match self.iter.next() {
+                        Some(s) => s.into(),
+                        None => return Ok(None),
+                    };
 
-        let arg = match self.iter.next() {
-            Some(value) => value.into(),
-            None => return Ok(None),
-        };
+                    match next.strip_prefix("-") {
+                        Some("") => return Ok(Some(Argument::Stdio)),
+                        Some("-") => {
+                            self.state = State::End;
+                        }
+                        Some(rest) => {
+                            if rest.starts_with('-') {
+                                self.last_arg = next.into_owned();
 
-        self.last_arg = Some(arg);
+                                if let Some(index) = self.last_arg.find('=') {
+                                    self.state =
+                                        State::LeftoverValue(self.last_arg[index + 1..].to_owned());
 
-        let arg = unsafe { self.last_arg.as_deref().unwrap_unchecked() };
+                                    return Ok(Some(Argument::Long(&self.last_arg[2..index])));
+                                }
 
-        if arg.starts_with('-') {
-            match arg.get(1..) {
-                Some("-") => {
-                    self.state = State::End;
+                                return Ok(Some(Argument::Long(&self.last_arg[2..])));
+                            }
 
-                    return Ok(self
-                        .iter
-                        .next()
-                        .map(|v| Argument::Value(Cow::Owned(v.into()))));
-                }
-                Some(rest) => {
-                    if let Some((_, option)) = rest.split_once('-') {
-                        if let Some((option, value)) = option.split_once('=') {
-                            self.state = State::LeftoverValue(value.to_owned());
-
-                            return Ok(Some(Argument::Long(option)));
+                            self.state = State::Combined(0, rest.to_owned());
                         }
 
-                        if let State::LeftoverValue(ref mut value) = self.state {
-                            return Err(ParsingError::UnconsumedValue {
-                                value: mem::take(value),
-                            });
+                        None => {
+                            return Ok(Some(Argument::Value(next)));
                         }
-
-                        return Ok(Some(Argument::Long(option)));
                     }
-
-                    if let Some(option) = rest.chars().next() {
-                        self.state = State::Combined(1, rest.to_owned());
-
-                        return Ok(Some(Argument::Short(option)));
-                    }
-
-                    return Ok(Some(Argument::Stdio));
                 }
-                None => unsafe { unreachable_unchecked() },
+                State::LeftoverValue(ref mut value) => {
+                    let value = mem::take(value);
+                    self.state = State::Poisoned;
+
+                    return Err(ParsingError::UnconsumedValue { value });
+                }
             }
         }
-
-        Ok(Some(Argument::Value(arg.into())))
     }
 
     /// Retrieves and consumes the value associated with the most recent option.
@@ -464,11 +465,20 @@ where
     /// ```
     pub fn value(&mut self) -> Option<String> {
         match self.state {
-            State::LeftoverValue(_) => match mem::replace(&mut self.state, State::NotInteresting) {
-                State::LeftoverValue(val) => Some(val),
-                _ => unsafe { unreachable_unchecked() },
-            },
-            _ => None,
+            State::End | State::Poisoned | State::Combined(..) => None,
+            State::LeftoverValue(ref mut value) => {
+                let value = mem::take(value);
+                self.state = State::NotInteresting;
+
+                Some(value)
+            }
+            State::NotInteresting => {
+                if self.iter.peek()?.as_ref().starts_with('-') {
+                    return None;
+                }
+
+                Some(self.iter.next()?.into().into_owned())
+            }
         }
     }
 
@@ -509,10 +519,70 @@ where
         &self.name
     }
 
+    /// Returns `true` if the parser is in a poisoned state due to a previous error.
+    ///
+    /// When poisoned, `forward()` will always return `Ok(None)`. Use `into_inner()`
+    /// to recover the underlying iterator if needed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::{Parser, Argument};
+    ///
+    /// let mut parser = Parser::from_arbitrary(["prog", "--file=test"]).unwrap();
+    ///
+    /// assert!(!parser.is_poisoned());
+    ///
+    /// // Parse option without consuming value
+    /// parser.forward().unwrap();
+    ///
+    /// // This errors and poisons the parser
+    /// assert!(parser.forward().is_err());
+    /// assert!(parser.is_poisoned());
+    /// ```
+    pub const fn is_poisoned(&self) -> bool {
+        matches!(self.state, State::Poisoned)
+    }
+
+    /// Returns `true` if there is an unconsumed value from a previous option.
+    ///
+    /// This occurs when parsing options like `--file=value` where the value has not
+    /// yet been retrieved via `value()` or discarded via `ignore_value()`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::{Parser, Argument};
+    ///
+    /// let mut parser = Parser::from_arbitrary(["prog", "--file=test.txt"]).unwrap();
+    ///
+    /// assert!(!parser.has_leftover_value());
+    ///
+    /// // Parse the option
+    /// parser.forward().unwrap();
+    ///
+    /// // Now there's a leftover value
+    /// assert!(parser.has_leftover_value());
+    ///
+    /// // Consume it
+    /// parser.value();
+    /// assert!(!parser.has_leftover_value());
+    /// ```
+    pub const fn has_leftover_value(&self) -> bool {
+        matches!(self.state, State::LeftoverValue(_))
+    }
+
     /// Consumes the parser and returns the underlying iterator.
     ///
     /// This allows access to any remaining, unparsed arguments. Note that the
     /// iterator's state reflects the current parsing position.
+    ///
+    /// # Error Recovery
+    ///
+    /// This method is particularly useful for recovering unparsed arguments after
+    /// a parsing error occurs. When the parser enters a poisoned state due to an error,
+    /// the underlying iterator remains intact and can be retrieved to access the
+    /// remaining arguments that were not yet consumed.
     ///
     /// # Examples
     ///
@@ -528,7 +598,23 @@ where
     /// let remaining: Vec<String> = parser.into_inner().map(|s| s.into()).collect();
     /// assert_eq!(remaining, vec!["remaining"]);
     /// ```
-    pub fn into_inner(self) -> I {
+    ///
+    /// ```rust
+    /// use sap::{Parser, Argument};
+    ///
+    /// let mut parser = Parser::from_arbitrary(["prog", "--file=test", "--other"]).unwrap();
+    ///
+    /// // Parse first option but forget to consume value
+    /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("file")));
+    ///
+    /// // This will error due to unconsumed value, poisoning the parser
+    /// assert!(parser.forward().is_err());
+    ///
+    /// // Recover the remaining unparsed arguments
+    /// let remaining: Vec<String> = parser.into_inner().map(|s| s.into()).collect();
+    /// assert_eq!(remaining, vec!["--other"]);
+    /// ```
+    pub fn into_inner(self) -> Peekable<I> {
         self.iter
     }
 }
@@ -912,6 +998,38 @@ mod tests {
         if let Some(Long(name)) = parser.forward()? {
             assert_eq!(name, long_name);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn value_consumes_next_argument() -> Result<()> {
+        let mut parser =
+            Parser::from_arbitrary(["prog", "--file", "test.txt", "--output", "out.txt"])?;
+        assert_eq!(parser.forward()?, Some(Long("file")));
+        assert_eq!(parser.value(), Some("test.txt".to_string()));
+        assert_eq!(parser.forward()?, Some(Long("output")));
+        assert_eq!(parser.value(), Some("out.txt".to_string()));
+        assert_eq!(parser.forward()?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn value_does_not_consume_options() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "--file", "--other", "-x"])?;
+        assert_eq!(parser.forward()?, Some(Long("file")));
+        assert_eq!(parser.value(), None);
+        assert_eq!(parser.forward()?, Some(Long("other")));
+        assert_eq!(parser.forward()?, Some(Short('x')));
+        Ok(())
+    }
+
+    #[test]
+    fn value_combined_options_return_none() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "-abc"])?;
+        assert_eq!(parser.forward()?, Some(Short('a')));
+        assert_eq!(parser.value(), None);
+        assert_eq!(parser.forward()?, Some(Short('b')));
+        assert_eq!(parser.value(), None);
         Ok(())
     }
 }
