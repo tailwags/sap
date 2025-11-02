@@ -42,7 +42,7 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use core::{error::Error, fmt::Display, mem};
+use core::{error::Error, fmt::Display, iter::Peekable, mem};
 
 #[cfg(feature = "std")]
 use std::{borrow::Cow, env, fmt::Debug};
@@ -224,7 +224,7 @@ impl Display for Argument<'_> {
 /// }
 /// ```
 pub struct Parser<I: Iterator> {
-    iter: I,
+    iter: Peekable<I>,
     state: State,
     name: String,
     last_arg: String,
@@ -272,10 +272,10 @@ impl Parser<env::Args> {
     }
 }
 
-impl<I, V> Parser<I>
+impl<'a, 'v: 'a, I, V> Parser<I>
 where
     I: Iterator<Item = V>,
-    V: Into<String>,
+    V: Into<Cow<'v, str>> + AsRef<str>,
 {
     /// Creates a `Parser` from any iterator that yields items convertible to `String`.
     ///
@@ -308,8 +308,8 @@ where
     where
         A: IntoIterator<IntoIter = I>,
     {
-        let mut iter = iter.into_iter();
-        let name = iter.next().ok_or(ParsingError::Empty)?.into();
+        let mut iter = iter.into_iter().peekable();
+        let name = iter.next().ok_or(ParsingError::Empty)?.into().into_owned();
 
         Ok(Parser {
             iter,
@@ -365,15 +365,12 @@ where
     ///
     /// assert_eq!(parser.forward().unwrap(), None);
     /// ```
-    pub fn forward(&mut self) -> Result<Option<Argument<'_>>> {
+    pub fn forward(&'a mut self) -> Result<Option<Argument<'a>>> {
         loop {
             match self.state {
                 State::Poisoned => return Ok(None),
                 State::End => {
-                    return Ok(self
-                        .iter
-                        .next()
-                        .map(|v| Argument::Value(Cow::Owned(v.into()))));
+                    return Ok(self.iter.next().map(|v| Argument::Value(v.into())));
                 }
                 State::Combined(index, ref mut options) => {
                     let options = mem::take(options);
@@ -397,18 +394,20 @@ where
                     }
                 }
                 State::NotInteresting => {
-                    self.last_arg = match self.iter.next() {
+                    let next = match self.iter.next() {
                         Some(s) => s.into(),
                         None => return Ok(None),
                     };
 
-                    match self.last_arg.strip_prefix("-") {
+                    match next.strip_prefix("-") {
                         Some("") => return Ok(Some(Argument::Stdio)),
                         Some("-") => {
                             self.state = State::End;
                         }
                         Some(rest) => {
                             if rest.starts_with('-') {
+                                self.last_arg = next.into_owned();
+
                                 if let Some(index) = self.last_arg.find('=') {
                                     self.state =
                                         State::LeftoverValue(self.last_arg[index + 1..].to_owned());
@@ -423,7 +422,7 @@ where
                         }
 
                         None => {
-                            return Ok(Some(Argument::Value(Cow::Borrowed(&self.last_arg))));
+                            return Ok(Some(Argument::Value(next)));
                         }
                     }
                 }
@@ -466,13 +465,20 @@ where
     /// ```
     pub fn value(&mut self) -> Option<String> {
         match self.state {
+            State::End | State::Poisoned | State::Combined(..) => None,
             State::LeftoverValue(ref mut value) => {
                 let value = mem::take(value);
                 self.state = State::NotInteresting;
 
                 Some(value)
             }
-            _ => None,
+            State::NotInteresting => {
+                if self.iter.peek()?.as_ref().starts_with('-') {
+                    return None;
+                }
+
+                Some(self.iter.next()?.into().into_owned())
+            }
         }
     }
 
@@ -608,7 +614,7 @@ where
     /// let remaining: Vec<String> = parser.into_inner().map(|s| s.into()).collect();
     /// assert_eq!(remaining, vec!["--other"]);
     /// ```
-    pub fn into_inner(self) -> I {
+    pub fn into_inner(self) -> Peekable<I> {
         self.iter
     }
 }
@@ -992,6 +998,38 @@ mod tests {
         if let Some(Long(name)) = parser.forward()? {
             assert_eq!(name, long_name);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn value_consumes_next_argument() -> Result<()> {
+        let mut parser =
+            Parser::from_arbitrary(["prog", "--file", "test.txt", "--output", "out.txt"])?;
+        assert_eq!(parser.forward()?, Some(Long("file")));
+        assert_eq!(parser.value(), Some("test.txt".to_string()));
+        assert_eq!(parser.forward()?, Some(Long("output")));
+        assert_eq!(parser.value(), Some("out.txt".to_string()));
+        assert_eq!(parser.forward()?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn value_does_not_consume_options() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "--file", "--other", "-x"])?;
+        assert_eq!(parser.forward()?, Some(Long("file")));
+        assert_eq!(parser.value(), None);
+        assert_eq!(parser.forward()?, Some(Long("other")));
+        assert_eq!(parser.forward()?, Some(Short('x')));
+        Ok(())
+    }
+
+    #[test]
+    fn value_combined_options_return_none() -> Result<()> {
+        let mut parser = Parser::from_arbitrary(["prog", "-abc"])?;
+        assert_eq!(parser.forward()?, Some(Short('a')));
+        assert_eq!(parser.value(), None);
+        assert_eq!(parser.forward()?, Some(Short('b')));
+        assert_eq!(parser.value(), None);
         Ok(())
     }
 }
