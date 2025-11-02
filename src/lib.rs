@@ -429,11 +429,11 @@ where
                 }
                 State::LeftoverValue(ref mut value) => {
                     let value = mem::take(value);
-                    mem::swap(&mut self.state, &mut State::Poisoned);
+                    self.state = State::Poisoned;
 
                     return Err(ParsingError::UnconsumedValue { value });
                 }
-            };
+            }
         }
     }
 
