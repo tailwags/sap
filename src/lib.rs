@@ -243,6 +243,8 @@ enum State {
     Combined(usize, String),
     /// All remaining arguments are positional values (after encountering `--`).
     End,
+    /// Parser encountered an error and stopped consuming from the underlying iterator.
+    Poisoned,
 }
 
 #[cfg(feature = "std")]
@@ -335,8 +337,15 @@ where
     /// - Option values are left unconsumed from previous calls
     /// - Invalid argument syntax is encountered
     ///
-    /// **Important**: The parser should not be used after encountering an error.
-    /// The internal state becomes undefined and further parsing may produce incorrect results.
+    /// ## Poisoned State
+    ///
+    /// After returning an error, the parser enters a "poisoned" state where:
+    /// - All subsequent calls to `forward()` will return `Ok(None)`
+    /// - The underlying iterator will not be polled further
+    /// - The iterator can still be recovered using [`Parser::into_inner`] if needed
+    ///
+    /// This ensures predictable behavior after errors and allows recovering the
+    /// remaining unparsed arguments without risking inconsistent parser state.
     ///
     /// # Examples
     ///
@@ -359,6 +368,7 @@ where
     pub fn forward(&mut self) -> Result<Option<Argument<'_>>> {
         loop {
             match self.state {
+                State::Poisoned => return Ok(None),
                 State::End => {
                     return Ok(self
                         .iter
@@ -371,6 +381,8 @@ where
                     match options.chars().nth(index) {
                         Some(char) => {
                             if char == '=' {
+                                self.state = State::Poisoned;
+
                                 return Err(ParsingError::InvalidOption {
                                     reason: "Short options do not support values",
                                     offender: None,
@@ -416,9 +428,10 @@ where
                     }
                 }
                 State::LeftoverValue(ref mut value) => {
-                    return Err(ParsingError::UnconsumedValue {
-                        value: mem::take(value),
-                    });
+                    let value = mem::take(value);
+                    mem::swap(&mut self.state, &mut State::Poisoned);
+
+                    return Err(ParsingError::UnconsumedValue { value });
                 }
             };
         }
@@ -503,6 +516,13 @@ where
     /// This allows access to any remaining, unparsed arguments. Note that the
     /// iterator's state reflects the current parsing position.
     ///
+    /// # Error Recovery
+    ///
+    /// This method is particularly useful for recovering unparsed arguments after
+    /// a parsing error occurs. When the parser enters a poisoned state due to an error,
+    /// the underlying iterator remains intact and can be retrieved to access the
+    /// remaining arguments that were not yet consumed.
+    ///
     /// # Examples
     ///
     /// ```rust
@@ -516,6 +536,22 @@ where
     /// // Get the remaining iterator
     /// let remaining: Vec<String> = parser.into_inner().map(|s| s.into()).collect();
     /// assert_eq!(remaining, vec!["remaining"]);
+    /// ```
+    ///
+    /// ```rust
+    /// use sap::{Parser, Argument};
+    ///
+    /// let mut parser = Parser::from_arbitrary(["prog", "--file=test", "--other"]).unwrap();
+    ///
+    /// // Parse first option but forget to consume value
+    /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("file")));
+    ///
+    /// // This will error due to unconsumed value, poisoning the parser
+    /// assert!(parser.forward().is_err());
+    ///
+    /// // Recover the remaining unparsed arguments
+    /// let remaining: Vec<String> = parser.into_inner().map(|s| s.into()).collect();
+    /// assert_eq!(remaining, vec!["--other"]);
     /// ```
     pub fn into_inner(self) -> I {
         self.iter
