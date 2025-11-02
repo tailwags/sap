@@ -42,7 +42,7 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use core::{error::Error, fmt::Display, hint::unreachable_unchecked, mem};
+use core::{error::Error, fmt::Display, mem};
 
 #[cfg(feature = "std")]
 use std::{borrow::Cow, env, fmt::Debug};
@@ -466,10 +466,12 @@ where
     /// ```
     pub fn value(&mut self) -> Option<String> {
         match self.state {
-            State::LeftoverValue(_) => match mem::replace(&mut self.state, State::NotInteresting) {
-                State::LeftoverValue(val) => Some(val),
-                _ => unsafe { unreachable_unchecked() },
-            },
+            State::LeftoverValue(ref mut value) => {
+                let value = mem::take(value);
+                self.state = State::NotInteresting;
+
+                Some(value)
+            }
             _ => None,
         }
     }
