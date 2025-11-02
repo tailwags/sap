@@ -511,6 +511,59 @@ where
         &self.name
     }
 
+    /// Returns `true` if the parser is in a poisoned state due to a previous error.
+    ///
+    /// When poisoned, `forward()` will always return `Ok(None)`. Use `into_inner()`
+    /// to recover the underlying iterator if needed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::{Parser, Argument};
+    ///
+    /// let mut parser = Parser::from_arbitrary(["prog", "--file=test"]).unwrap();
+    ///
+    /// assert!(!parser.is_poisoned());
+    ///
+    /// // Parse option without consuming value
+    /// parser.forward().unwrap();
+    ///
+    /// // This errors and poisons the parser
+    /// assert!(parser.forward().is_err());
+    /// assert!(parser.is_poisoned());
+    /// ```
+    pub const fn is_poisoned(&self) -> bool {
+        matches!(self.state, State::Poisoned)
+    }
+
+    /// Returns `true` if there is an unconsumed value from a previous option.
+    ///
+    /// This occurs when parsing options like `--file=value` where the value has not
+    /// yet been retrieved via `value()` or discarded via `ignore_value()`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::{Parser, Argument};
+    ///
+    /// let mut parser = Parser::from_arbitrary(["prog", "--file=test.txt"]).unwrap();
+    ///
+    /// assert!(!parser.has_leftover_value());
+    ///
+    /// // Parse the option
+    /// parser.forward().unwrap();
+    ///
+    /// // Now there's a leftover value
+    /// assert!(parser.has_leftover_value());
+    ///
+    /// // Consume it
+    /// parser.value();
+    /// assert!(!parser.has_leftover_value());
+    /// ```
+    pub const fn has_leftover_value(&self) -> bool {
+        matches!(self.state, State::LeftoverValue(_))
+    }
+
     /// Consumes the parser and returns the underlying iterator.
     ///
     /// This allows access to any remaining, unparsed arguments. Note that the
