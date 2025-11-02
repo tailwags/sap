@@ -227,7 +227,7 @@ pub struct Parser<I: Iterator> {
     iter: I,
     state: State,
     name: String,
-    last_arg: Option<String>,
+    last_arg: String,
 }
 
 /// Internal parser state for handling complex parsing scenarios.
@@ -313,7 +313,7 @@ where
             iter,
             state: State::NotInteresting,
             name,
-            last_arg: None,
+            last_arg: String::new(),
         })
     }
 
@@ -357,82 +357,71 @@ where
     /// assert_eq!(parser.forward().unwrap(), None);
     /// ```
     pub fn forward(&mut self) -> Result<Option<Argument<'_>>> {
-        if matches!(self.state, State::End) {
-            return Ok(self
-                .iter
-                .next()
-                .map(|v| Argument::Value(Cow::Owned(v.into()))));
-        }
-
-        if let State::Combined(index, ref mut options) = self.state {
-            let options = mem::take(options);
-
-            match options.chars().nth(index) {
-                Some(char) => {
-                    if char == '=' {
-                        return Err(ParsingError::InvalidOption {
-                            reason: "Short options do not support values",
-                            offender: None,
-                        });
-                    }
-
-                    self.state = State::Combined(index + 1, options);
-
-                    return Ok(Some(Argument::Short(char)));
-                }
-                None => self.state = State::NotInteresting,
-            }
-        }
-
-        let arg = match self.iter.next() {
-            Some(value) => value.into(),
-            None => return Ok(None),
-        };
-
-        self.last_arg = Some(arg);
-
-        let arg = unsafe { self.last_arg.as_deref().unwrap_unchecked() };
-
-        if arg.starts_with('-') {
-            match arg.get(1..) {
-                Some("-") => {
-                    self.state = State::End;
-
+        loop {
+            match self.state {
+                State::End => {
                     return Ok(self
                         .iter
                         .next()
                         .map(|v| Argument::Value(Cow::Owned(v.into()))));
                 }
-                Some(rest) => {
-                    if let Some((_, option)) = rest.split_once('-') {
-                        if let Some((option, value)) = option.split_once('=') {
-                            self.state = State::LeftoverValue(value.to_owned());
+                State::Combined(index, ref mut options) => {
+                    let options = mem::take(options);
 
-                            return Ok(Some(Argument::Long(option)));
+                    match options.chars().nth(index) {
+                        Some(char) => {
+                            if char == '=' {
+                                return Err(ParsingError::InvalidOption {
+                                    reason: "Short options do not support values",
+                                    offender: None,
+                                });
+                            }
+
+                            self.state = State::Combined(index + 1, options);
+
+                            return Ok(Some(Argument::Short(char)));
                         }
-
-                        if let State::LeftoverValue(ref mut value) = self.state {
-                            return Err(ParsingError::UnconsumedValue {
-                                value: mem::take(value),
-                            });
-                        }
-
-                        return Ok(Some(Argument::Long(option)));
+                        None => self.state = State::NotInteresting,
                     }
-
-                    if let Some(option) = rest.chars().next() {
-                        self.state = State::Combined(1, rest.to_owned());
-
-                        return Ok(Some(Argument::Short(option)));
-                    }
-
-                    return Ok(Some(Argument::Stdio));
                 }
-                None => unsafe { unreachable_unchecked() },
-            }
-        }
+                State::NotInteresting => {
+                    self.last_arg = match self.iter.next() {
+                        Some(s) => s.into(),
+                        None => return Ok(None),
+                    };
 
-        Ok(Some(Argument::Value(arg.into())))
+                    match self.last_arg.strip_prefix("-") {
+                        Some("") => return Ok(Some(Argument::Stdio)),
+                        Some("-") => {
+                            self.state = State::End;
+                        }
+                        Some(rest) => {
+                            if rest.starts_with('-') {
+                                if let Some(index) = self.last_arg.find('=') {
+                                    self.state =
+                                        State::LeftoverValue(self.last_arg[index + 1..].to_owned());
+
+                                    return Ok(Some(Argument::Long(&self.last_arg[2..index])));
+                                }
+
+                                return Ok(Some(Argument::Long(&self.last_arg[2..])));
+                            }
+
+                            self.state = State::Combined(0, rest.to_owned());
+                        }
+
+                        None => {
+                            return Ok(Some(Argument::Value(Cow::Borrowed(&self.last_arg))));
+                        }
+                    }
+                }
+                State::LeftoverValue(ref mut value) => {
+                    return Err(ParsingError::UnconsumedValue {
+                        value: mem::take(value),
+                    });
+                }
+            };
+        }
     }
 
     /// Retrieves and consumes the value associated with the most recent option.
