@@ -3,4 +3,14 @@ name = "treesap"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+proc-macro = true
+
 [dependencies]
+darling = "0.21.3"
+quote = "1.0.41"
+syn = { version = "2.0.108", features = ["full"] }
+
+[dev-dependencies]
+anyhow = "1.0.100"
+sap = { path = ".." }

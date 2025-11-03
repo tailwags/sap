@@ -23,3 +23,8 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+[dev-dependencies]
+anyhow = "1.0.100"
+bitflags = "2.10.0"
+itoa = "1.0.15"
