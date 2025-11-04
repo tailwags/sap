@@ -116,9 +116,16 @@ name = "treesap"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "sap",
+ "treesap-macros",
+]
+
+[[package]]
+name = "treesap-macros"
+version = "0.1.0"
+dependencies = [
  "darling",
  "quote",
- "sap",
  "syn",
 ]
 

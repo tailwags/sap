@@ -1,5 +1,5 @@
 [workspace]
-members = ["treesap"]
+members = ["treesap", "treesap/macros"]
 
 [package]
 name = "sap"
