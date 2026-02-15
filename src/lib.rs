@@ -462,10 +462,12 @@ where
     pub fn value(&mut self) -> Option<String> {
         // If all combined short flags have been consumed, treat the state as
         // NotInteresting so we can peek at the next argument as a separate value.
-        if let State::Combined(index, ref options) = self.state
-            && index >= options.len()
-        {
-            self.state = State::NotInteresting;
+        // This needs to stay a match statement to mantain msrv 1.85
+        match self.state {
+            State::Combined(index, ref options) if index >= options.len() => {
+                self.state = State::NotInteresting;
+            }
+            _ => {}
         }
 
         match self.state {
