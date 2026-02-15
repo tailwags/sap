@@ -438,23 +438,34 @@ where
 
     /// Retrieves and consumes the value associated with the most recent option.
     ///
-    /// Call this method after parsing a long option that may have an attached value
-    /// (using `--option=value` syntax). The value is consumed and subsequent calls
-    /// will return `None` until another option with a value is parsed.
+    /// This method handles two cases:
+    ///
+    /// 1. **Inline value** (`--option=value` syntax): If the most recently parsed long
+    ///    option had an attached value, that value is returned and consumed.
+    ///
+    /// 2. **Separate argument**: If there is no inline value, the method peeks at the
+    ///    next iterator item. If it does not start with `-` (i.e., it is not another
+    ///    option or the `-` stdin marker), it is consumed and returned as the value.
+    ///    Otherwise, `None` is returned and the next item remains unconsumed.
+    ///
+    /// Note: Calling `value()` while processing combined short options (e.g., between
+    /// flags of `-abc`) always returns `None`. Once all flags in the cluster are
+    /// exhausted, `value()` falls back to the separate-argument behavior described above.
     ///
     /// # Returns
     ///
-    /// - `Some(value)` - The option has an attached value
-    /// - `None` - The option has no attached value or it was already consumed
+    /// - `Some(value)` - The option has an attached or following value
+    /// - `None` - The option has no value, or it was already consumed, or the next
+    ///   argument starts with `-`
     ///
     /// # Examples
     ///
     /// ```rust
     /// use sap::{Parser, Argument};
     ///
+    /// // Inline value via --option=value
     /// let mut parser = Parser::from_arbitrary(["prog", "--file=input.txt", "--verbose"]).unwrap();
     ///
-    /// // Option with attached value
     /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("file")));
     /// assert_eq!(parser.value(), Some("input.txt".to_string()));
     /// assert_eq!(parser.value(), None); // Already consumed
@@ -462,8 +473,28 @@ where
     /// // Option without value
     /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("verbose")));
     /// assert_eq!(parser.value(), None);
+    ///
+    /// // Separate argument value: --file myfile.txt
+    /// let mut parser = Parser::from_arbitrary(["prog", "--file", "myfile.txt"]).unwrap();
+    ///
+    /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("file")));
+    /// assert_eq!(parser.value(), Some("myfile.txt".to_string()));
+    ///
+    /// // Short option with separate value: -f myfile.txt
+    /// let mut parser = Parser::from_arbitrary(["prog", "-f", "myfile.txt"]).unwrap();
+    ///
+    /// assert_eq!(parser.forward().unwrap(), Some(Argument::Short('f')));
+    /// assert_eq!(parser.value(), Some("myfile.txt".to_string()));
     /// ```
     pub fn value(&mut self) -> Option<String> {
+        // If all combined short flags have been consumed, treat the state as
+        // NotInteresting so we can peek at the next argument as a separate value.
+        if let State::Combined(index, ref options) = self.state
+            && index >= options.len()
+        {
+            self.state = State::NotInteresting;
+        };
+
         match self.state {
             State::End | State::Poisoned | State::Combined(..) => None,
             State::LeftoverValue(ref mut value) => {
