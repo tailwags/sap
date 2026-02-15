@@ -1,7 +1,7 @@
 # Adapted from https://github.com/rust-lang/libc/blob/master/.cirrus.yml
 
 freebsd_instance:
-  image_family: freebsd-14-2
+  image_family: freebsd-15-0-amd64-ufs
 
 task:
   name: x86_unknown-freebsd
