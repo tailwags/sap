@@ -1,4 +1,4 @@
-use sap::{Argument::Short, Parser, Result};
+use sap::{Argument::Short, Parser, ParsingError, Result};
 
 #[test]
 fn short_options() -> Result<()> {
@@ -34,6 +34,12 @@ fn short_option_special_chars() -> Result<()> {
 fn short_option_equals_error() -> Result<()> {
     let mut parser = Parser::from_arbitrary(["prog", "-x=value"])?;
     assert_eq!(parser.forward()?, Some(Short('x')));
-    assert!(parser.forward().is_err());
+    let err = parser.forward().unwrap_err();
+    assert_eq!(
+        err,
+        ParsingError::InvalidSyntax {
+            reason: "Short options do not support values"
+        }
+    );
     Ok(())
 }

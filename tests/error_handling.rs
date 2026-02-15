@@ -1,4 +1,4 @@
-use sap::{Argument::Short, Parser, Result};
+use sap::{Argument::Short, Parser, ParsingError, Result};
 
 // ── unconsumed value / poisoning ───────────────────────────────────────────
 
@@ -6,7 +6,13 @@ use sap::{Argument::Short, Parser, Result};
 fn unconsumed_value_error() -> Result<()> {
     let mut parser = Parser::from_arbitrary(["prog", "--file=test.txt", "--verbose"])?;
     assert_eq!(parser.forward()?, Some(sap::Argument::Long("file")));
-    assert!(parser.forward().is_err());
+    let err = parser.forward().unwrap_err();
+    assert_eq!(
+        err,
+        ParsingError::UnconsumedValue {
+            value: "test.txt".to_string()
+        }
+    );
     Ok(())
 }
 

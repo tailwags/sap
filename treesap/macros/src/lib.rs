@@ -64,7 +64,7 @@ pub fn derive_parser(input: TokenStream) -> TokenStream {
                                 //     std::process::exit(0);
                                 // }
                                 #(#field_setters),*
-                                arg => return Err(arg.into_error(None)),
+                                arg => return Err(arg.unexpected()),
                             }
                         }
 

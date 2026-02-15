@@ -113,74 +113,48 @@ pub enum Argument<'a> {
     Stdio,
 }
 
-impl<'a> Argument<'a> {
-    /// Converts this argument into a [`ParsingError::UnexpectedArg`] error.
+impl Argument<'_> {
+    /// Converts this argument into a [`ParsingError::Unexpected`] error.
     ///
     /// This is a convenience method for creating contextual error messages when an argument
     /// is encountered but not expected by the application. The resulting error message
     /// includes appropriate formatting based on the argument type.
-    ///
-    /// # Parameters
-    ///
-    /// * `value` - Optional value associated with the argument (primarily used with options)
     ///
     /// # Examples
     ///
     /// ```rust
     /// use sap::Argument;
     ///
-    /// // Long option with value
+    /// // Long option
     /// let arg = Argument::Long("unknown");
-    /// let error = arg.into_error(Some("value"));
-    /// assert_eq!(error.to_string(), "unexpected argument: --unknown=value");
+    /// let error = arg.unexpected();
+    /// assert_eq!(error.to_string(), "unexpected argument: --unknown");
     ///
-    /// // Short option without value
+    /// // Short option
     /// let arg = Argument::Short('x');
-    /// let error = arg.into_error(None::<&str>);
+    /// let error = arg.unexpected();
     /// assert_eq!(error.to_string(), "unexpected argument: -x");
+    ///
+    /// // Positional value
+    /// let arg = Argument::Value("file".into());
+    /// let error = arg.unexpected();
+    /// assert_eq!(error.to_string(), "unexpected argument: file");
     ///
     /// // Stdio argument
     /// let arg = Argument::Stdio;
-    /// let error = arg.into_error(None::<&str>);
+    /// let error = arg.unexpected();
     /// assert_eq!(error.to_string(), "unexpected argument: -");
     /// ```
-    pub fn into_error<A>(self, value: A) -> ParsingError
-    where
-        A: Into<Option<&'a str>>,
-    {
-        use Argument::{Long, Short, Stdio, Value};
-
-        match self {
-            Long(arg) => ParsingError::UnexpectedArg {
-                offender: arg.to_string(),
-                value: value.into().map(String::from),
-                format: "=",
-                prefix: "--",
-            },
-            Short(arg) => ParsingError::UnexpectedArg {
-                offender: arg.to_string(),
-                value: value.into().map(String::from),
-                format: " ",
-                prefix: "-",
-            },
-            Value(arg) => ParsingError::UnexpectedArg {
-                offender: arg.to_string(),
-                value: None,
-                format: "",
-                prefix: "",
-            },
-            Stdio => ParsingError::UnexpectedArg {
-                offender: "-".to_string(),
-                value: None,
-                format: "",
-                prefix: "",
-            },
+    #[must_use]
+    pub fn unexpected(&self) -> ParsingError {
+        ParsingError::Unexpected {
+            argument: self.to_string(),
         }
     }
 }
 
 impl Display for Argument<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         use Argument::{Long, Short, Stdio, Value};
 
         match self {
@@ -380,9 +354,8 @@ where
                             if char == '=' {
                                 self.state = State::Poisoned;
 
-                                return Err(ParsingError::InvalidOption {
+                                return Err(ParsingError::InvalidSyntax {
                                     reason: "Short options do not support values",
-                                    offender: None,
                                 });
                             }
 
@@ -493,7 +466,7 @@ where
             && index >= options.len()
         {
             self.state = State::NotInteresting;
-        };
+        }
 
         match self.state {
             State::End | State::Poisoned | State::Combined(..) => None,
@@ -654,22 +627,23 @@ where
 ///
 /// All parsing operations return a `Result` with this error type. Each variant
 /// provides specific context about what went wrong during parsing.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsingError {
+    /// The argument iterator was empty (contained no program name).
+    ///
+    /// Returned by [`Parser::from_arbitrary`] when the iterator yields no items,
+    /// or by [`Parser::from_env`] if the OS provides an empty argument list.
+    Empty,
+
     /// Invalid option syntax or format was encountered.
     ///
-    /// This typically occurs when:
-    /// - Short options are given values with `=` syntax (e.g., `-x=value`)
-    /// - Malformed option syntax is detected
+    /// This currently occurs when short options are given values with `=` syntax
+    /// (e.g., `-x=value`).
     ///
     /// # Fields
     ///
     /// * `reason` - Human-readable description of what was invalid
-    /// * `offender` - The specific argument that caused the error (if available)
-    InvalidOption {
-        reason: &'static str,
-        offender: Option<String>,
-    },
+    InvalidSyntax { reason: &'static str },
 
     /// An option value was not consumed after being parsed.
     ///
@@ -682,63 +656,33 @@ pub enum ParsingError {
     /// * `value` - The unconsumed value that was attached to the option
     UnconsumedValue { value: String },
 
-    /// The argument iterator was empty (contained no program name).
-    ///
-    /// This should not occur during normal program execution but may happen
-    /// when creating parsers from empty custom iterators.
-    Empty,
-
     /// An unexpected or unrecognized argument was encountered.
     ///
-    /// This error is typically created by calling [`Argument::into_error`] when
+    /// This error is typically created by calling [`Argument::unexpected`] when
     /// the application encounters an argument it doesn't know how to handle.
     ///
     /// # Fields
     ///
-    /// * `offender` - The argument name that was unexpected
-    /// * `value` - Associated value (if any)
-    /// * `format` - How the value is formatted in error messages (e.g., "=" or " ")
-    /// * `prefix` - The argument prefix (e.g., "--" for long options, "-" for short)
-    UnexpectedArg {
-        offender: String,
-        value: Option<String>,
-        format: &'static str,
-        prefix: &'static str,
-    },
+    /// * `argument` - The formatted argument string (e.g., "--unknown", "-x value", "file.txt")
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use sap::{Argument, ParsingError};
+    ///
+    /// let error = Argument::Long("unknown").unexpected();
+    /// assert_eq!(error.to_string(), "unexpected argument: --unknown");
+    /// ```
+    Unexpected { argument: String },
 }
 
 impl Display for ParsingError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::InvalidOption { reason, offender } => {
-                write!(f, "reason: {reason}")?;
-                if let Some(sentence) = offender {
-                    write!(f, " at: {sentence}")?;
-                }
-
-                Ok(())
-            }
-
-            Self::UnconsumedValue { value } => {
-                write!(f, "leftover value: {value}",)
-            }
-
-            Self::UnexpectedArg {
-                offender,
-                value,
-                format,
-                prefix,
-            } => match value {
-                Some(val) => {
-                    write!(f, "unexpected argument: {prefix}{offender}{format}{val}")
-                }
-
-                None => {
-                    write!(f, "unexpected argument: {prefix}{offender}")
-                }
-            },
-
-            Self::Empty => write!(f, "env variables were empty"),
+            Self::Empty => write!(f, "argument list is empty"),
+            Self::InvalidSyntax { reason } => write!(f, "invalid syntax: {reason}"),
+            Self::UnconsumedValue { value } => write!(f, "unconsumed value: {value}"),
+            Self::Unexpected { argument } => write!(f, "unexpected argument: {argument}"),
         }
     }
 }

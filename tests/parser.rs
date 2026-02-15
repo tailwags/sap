@@ -141,32 +141,38 @@ fn empty_and_whitespace() -> Result<()> {
 }
 
 #[test]
-fn argument_into_error() {
-    use sap::Argument::{Long, Short, Stdio, Value};
+fn argument_unexpected() {
+    use sap::ParsingError;
 
     assert_eq!(
-        Long("test").into_error("value").to_string(),
-        "unexpected argument: --test=value"
+        Long("test").unexpected(),
+        ParsingError::Unexpected {
+            argument: "--test".to_string()
+        }
     );
     assert_eq!(
-        Long("test").into_error(None::<&str>).to_string(),
+        Short('x').unexpected(),
+        ParsingError::Unexpected {
+            argument: "-x".to_string()
+        }
+    );
+    assert_eq!(
+        Value("file".into()).unexpected(),
+        ParsingError::Unexpected {
+            argument: "file".to_string()
+        }
+    );
+    assert_eq!(
+        Stdio.unexpected(),
+        ParsingError::Unexpected {
+            argument: "-".to_string()
+        }
+    );
+
+    // Verify Display implementation still works correctly
+    assert_eq!(
+        Long("test").unexpected().to_string(),
         "unexpected argument: --test"
-    );
-    assert_eq!(
-        Short('x').into_error("val").to_string(),
-        "unexpected argument: -x val"
-    );
-    assert_eq!(
-        Short('x').into_error(None::<&str>).to_string(),
-        "unexpected argument: -x"
-    );
-    assert_eq!(
-        Value("file".into()).into_error(None::<&str>).to_string(),
-        "unexpected argument: file"
-    );
-    assert_eq!(
-        Stdio.into_error(None::<&str>).to_string(),
-        "unexpected argument: -"
     );
 }
 
