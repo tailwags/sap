@@ -4,7 +4,7 @@ exclude = ["fuzz"]
 
 [package]
 name = "sap"
-version = "0.0.7"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A small, simple and sweet argument parser for Rust"

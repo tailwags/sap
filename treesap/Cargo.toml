@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sap = { version = "0.0.7", path = ".." }
+sap = { version = "0.1.0", path = ".." }
 treesap-macros = { version = "0.1.0", path = "macros" }
 
 [dev-dependencies]
