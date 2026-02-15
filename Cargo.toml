@@ -1,5 +1,6 @@
 [workspace]
 members = ["treesap", "treesap/macros"]
+exclude = ["fuzz"]
 
 [package]
 name = "sap"
@@ -25,6 +26,6 @@ strip = true
 panic = "abort"
 
 [dev-dependencies]
-anyhow = "1.0.100"
-bitflags = "2.10.0"
-itoa = "1.0.15"
+anyhow = "1.0.101"
+bitflags = "2.11.0"
+itoa = "1.0.17"
