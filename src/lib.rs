@@ -253,9 +253,19 @@ impl Parser<env::Args> {
 }
 
 pub trait ArgLike: sealed::Sealed {
+    /// Converts this value into an argument string.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`Utf8Error`] if the value is not valid UTF-8.
     fn into_arg<'v>(self) -> Result<Cow<'v, str>, Utf8Error>;
 
-    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error>;
+    /// Borrows this value as an argument string.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`Utf8Error`] if the value is not valid UTF-8.
+    fn as_arg(&self) -> Result<Cow<'_, str>, Utf8Error>;
 }
 
 impl ArgLike for String {
@@ -263,27 +273,27 @@ impl ArgLike for String {
         Ok(Cow::Owned(self))
     }
 
-    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+    fn as_arg(&self) -> Result<Cow<'_, str>, Utf8Error> {
         Ok(Cow::Borrowed(self.as_str()))
     }
 }
 
-impl<'a> ArgLike for &'a str {
+impl ArgLike for &str {
     fn into_arg<'v>(self) -> Result<Cow<'v, str>, Utf8Error> {
         Ok(Cow::Owned(self.to_owned()))
     }
 
-    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+    fn as_arg(&self) -> Result<Cow<'_, str>, Utf8Error> {
         Ok(Cow::Borrowed(*self))
     }
 }
 
-impl<'a> ArgLike for &'a CStr {
+impl ArgLike for &CStr {
     fn into_arg<'v>(self) -> Result<Cow<'v, str>, Utf8Error> {
         Ok(Cow::Owned(self.to_str()?.to_owned()))
     }
 
-    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+    fn as_arg(&self) -> Result<Cow<'_, str>, Utf8Error> {
         self.to_str().map(Cow::Borrowed)
     }
 }
@@ -295,18 +305,18 @@ impl ArgLike for CString {
             .map_err(|e| e.utf8_error())
     }
 
-    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+    fn as_arg(&self) -> Result<Cow<'_, str>, Utf8Error> {
         self.to_str().map(Cow::Borrowed)
     }
 }
 
 #[cfg(feature = "std")]
-impl<'a> ArgLike for &'a OsStr {
+impl ArgLike for &OsStr {
     fn into_arg<'v>(self) -> Result<Cow<'v, str>, Utf8Error> {
         core::str::from_utf8(self.as_encoded_bytes()).map(|s| Cow::Owned(s.to_owned()))
     }
 
-    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+    fn as_arg(&self) -> Result<Cow<'_, str>, Utf8Error> {
         match self.to_str() {
             Some(s) => Ok(Cow::Borrowed(s)),
             None => Err(core::str::from_utf8(self.as_encoded_bytes()).unwrap_err()),
@@ -320,7 +330,7 @@ impl ArgLike for OsString {
         core::str::from_utf8(self.as_encoded_bytes()).map(|s| Cow::Owned(s.to_owned()))
     }
 
-    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+    fn as_arg(&self) -> Result<Cow<'_, str>, Utf8Error> {
         match self.to_str() {
             Some(s) => Ok(Cow::Borrowed(s)),
             None => Err(core::str::from_utf8(self.as_encoded_bytes()).unwrap_err()),
@@ -347,7 +357,7 @@ mod sealed {
     impl Sealed for OsString {}
 }
 
-impl<'a, 'v: 'a, I, V> Parser<I>
+impl<'a, I, V> Parser<I>
 where
     I: Iterator<Item = V>,
     V: ArgLike,
@@ -533,6 +543,10 @@ where
     /// flags of `-abc`) always returns `None`. Once all flags in the cluster are
     /// exhausted, `value()` falls back to the separate-argument behavior described above.
     ///
+    /// # Errors
+    ///
+    /// Returns an error if the next argument value is not valid UTF-8.
+    ///
     /// # Returns
     ///
     /// - `Some(value)` - The option has an attached or following value
@@ -602,7 +616,7 @@ where
 
                 self.iter.next();
 
-                return Ok(Some(arg));
+                Ok(Some(arg))
             }
         }
     }
