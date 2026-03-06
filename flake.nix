@@ -28,6 +28,9 @@
           default = pkgs.mkShell {
             buildInputs = with pkgs; [
               cargo-nextest
+              cargo-edit
+              cargo-expand
+              cargo-bloat
               (rust-bin.stable.latest.default.override {
                 extensions = [ "rust-src" ];
               })
