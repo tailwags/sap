@@ -41,7 +41,7 @@ while let Some(arg) = parser.forward().unwrap() {
         Argument::Short('v') => println!("Verbose mode enabled"),
         Argument::Long("help") => println!("Help requested"),
         Argument::Long("file") => {
-            if let Some(filename) = parser.value() {
+            if let Some(filename) = parser.value()? {
                 println!("Processing file: {}", filename);
             }
         }
@@ -63,7 +63,7 @@ while let Some(arg) = parser.forward().unwrap() {
     match arg {
         Argument::Short('v') => println!("Verbose mode enabled"),
         Argument::Long("file") => {
-            if let Some(filename) = parser.value() {
+            if let Some(filename) = parser.value()? {
                 println!("Processing file: {}", filename);
             }
         }
@@ -105,7 +105,7 @@ fn main() -> Result<()> {
                 return Ok(());
             }
             Argument::Short('o') | Argument::Long("output") => {
-                output_file = parser.value();
+                output_file = parser.value()?;
                 if output_file.is_none() {
                     eprintln!("Error: --output requires a value");
                     std::process::exit(1);
@@ -118,7 +118,7 @@ fn main() -> Result<()> {
                 input_files.push("-".to_string());
             }
             unknown => {
-                eprintln!("Error: {}", unknown.into_error(parser.value()));
+                eprintln!("Error: {}", unknown.into_error(parser.value()?));
                 std::process::exit(1);
             }
         }

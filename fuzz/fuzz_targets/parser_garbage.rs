@@ -10,7 +10,7 @@ fuzz_target!(|data: &[u8]| {
 
     if let Ok(mut parser) = Parser::from_arbitrary(args) {
         while let Ok(Some(_)) = parser.forward() {
-            let _ = parser.value();
+            let _ = parser.value()?;
         }
     }
 
@@ -21,7 +21,7 @@ fuzz_target!(|data: &[u8]| {
 
     if let Ok(mut parser) = Parser::from_arbitrary(args) {
         while let Ok(Some(_)) = parser.forward() {
-            let _ = parser.value();
+            let _ = parser.value()?;
         }
     }
 });

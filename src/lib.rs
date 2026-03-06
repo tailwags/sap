@@ -29,7 +29,7 @@
 //!     match arg {
 //!         Argument::Short('v') => println!("Verbose mode enabled"),
 //!         Argument::Long("file") => {
-//!             if let Some(filename) = parser.value() {
+//!             if let Some(filename) = parser.value().unwrap() {
 //!                 println!("Processing file: {}", filename);
 //!             }
 //!         }
@@ -42,14 +42,20 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use core::{error::Error, fmt::Display, iter::Peekable, mem};
+use core::{error::Error, ffi::CStr, fmt::Display, iter::Peekable, mem, str::Utf8Error};
 
 #[cfg(feature = "std")]
-use std::{borrow::Cow, env, fmt::Debug};
+use std::{
+    borrow::Cow,
+    env,
+    ffi::{CString, OsStr, OsString},
+    fmt::Debug,
+};
 
 #[cfg(not(feature = "std"))]
 use alloc::{
     borrow::{Cow, ToOwned},
+    ffi::CString,
     string::{String, ToString},
 };
 
@@ -246,10 +252,105 @@ impl Parser<env::Args> {
     }
 }
 
+pub trait ArgLike: sealed::Sealed {
+    fn into_arg<'v>(self) -> Result<Cow<'v, str>, Utf8Error>;
+
+    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error>;
+}
+
+impl ArgLike for String {
+    fn into_arg<'v>(self) -> Result<Cow<'v, str>, Utf8Error> {
+        Ok(Cow::Owned(self))
+    }
+
+    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+        Ok(Cow::Borrowed(self.as_str()))
+    }
+}
+
+impl<'a> ArgLike for &'a str {
+    fn into_arg<'v>(self) -> Result<Cow<'v, str>, Utf8Error> {
+        Ok(Cow::Owned(self.to_owned()))
+    }
+
+    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+        Ok(Cow::Borrowed(*self))
+    }
+}
+
+impl<'a> ArgLike for &'a CStr {
+    fn into_arg<'v>(self) -> Result<Cow<'v, str>, Utf8Error> {
+        Ok(Cow::Owned(self.to_str()?.to_owned()))
+    }
+
+    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+        self.to_str().map(Cow::Borrowed)
+    }
+}
+
+impl ArgLike for CString {
+    fn into_arg<'v>(self) -> Result<Cow<'v, str>, Utf8Error> {
+        self.into_string()
+            .map(Cow::Owned)
+            .map_err(|e| e.utf8_error())
+    }
+
+    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+        self.to_str().map(Cow::Borrowed)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a> ArgLike for &'a OsStr {
+    fn into_arg<'v>(self) -> Result<Cow<'v, str>, Utf8Error> {
+        core::str::from_utf8(self.as_encoded_bytes()).map(|s| Cow::Owned(s.to_owned()))
+    }
+
+    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+        match self.to_str() {
+            Some(s) => Ok(Cow::Borrowed(s)),
+            None => Err(core::str::from_utf8(self.as_encoded_bytes()).unwrap_err()),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl ArgLike for OsString {
+    fn into_arg<'v>(self) -> Result<Cow<'v, str>, Utf8Error> {
+        core::str::from_utf8(self.as_encoded_bytes()).map(|s| Cow::Owned(s.to_owned()))
+    }
+
+    fn as_arg<'v>(&'v self) -> Result<Cow<'v, str>, Utf8Error> {
+        match self.to_str() {
+            Some(s) => Ok(Cow::Borrowed(s)),
+            None => Err(core::str::from_utf8(self.as_encoded_bytes()).unwrap_err()),
+        }
+    }
+}
+
+mod sealed {
+    #[cfg(not(feature = "std"))]
+    use alloc::ffi::CString;
+    use core::ffi::CStr;
+    #[cfg(feature = "std")]
+    use std::ffi::{CString, OsStr, OsString};
+
+    pub trait Sealed {}
+
+    impl Sealed for String {}
+    impl Sealed for &str {}
+    impl Sealed for &CStr {}
+    impl Sealed for CString {}
+    #[cfg(feature = "std")]
+    impl Sealed for &OsStr {}
+    #[cfg(feature = "std")]
+    impl Sealed for OsString {}
+}
+
 impl<'a, 'v: 'a, I, V> Parser<I>
 where
     I: Iterator<Item = V>,
-    V: Into<Cow<'v, str>> + AsRef<str>,
+    V: ArgLike,
 {
     /// Creates a `Parser` from any iterator that yields items convertible to `String`.
     ///
@@ -283,7 +384,11 @@ where
         A: IntoIterator<IntoIter = I>,
     {
         let mut iter = iter.into_iter().peekable();
-        let name = iter.next().ok_or(ParsingError::Empty)?.into().into_owned();
+        let name = iter
+            .next()
+            .ok_or(ParsingError::Empty)?
+            .into_arg()?
+            .into_owned();
 
         Ok(Parser {
             iter,
@@ -335,7 +440,7 @@ where
     ///
     /// // Long option with attached value
     /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("file")));
-    /// assert_eq!(parser.value(), Some("test.txt".to_string()));
+    /// assert_eq!(parser.value()?, Some("test.txt".to_string()));
     ///
     /// assert_eq!(parser.forward().unwrap(), None);
     /// ```
@@ -344,7 +449,10 @@ where
             match self.state {
                 State::Poisoned => return Ok(None),
                 State::End => {
-                    return Ok(self.iter.next().map(|v| Argument::Value(v.into())));
+                    return match self.iter.next() {
+                        Some(v) => Ok(Some(Argument::Value(v.into_arg()?))),
+                        None => Ok(None),
+                    };
                 }
                 State::Combined(index, ref mut options) => {
                     let options = mem::take(options);
@@ -368,7 +476,7 @@ where
                 }
                 State::NotInteresting => {
                     let next = match self.iter.next() {
-                        Some(s) => s.into(),
+                        Some(s) => s.into_arg()?,
                         None => return Ok(None),
                     };
 
@@ -440,26 +548,26 @@ where
     /// let mut parser = Parser::from_arbitrary(["prog", "--file=input.txt", "--verbose"]).unwrap();
     ///
     /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("file")));
-    /// assert_eq!(parser.value(), Some("input.txt".to_string()));
-    /// assert_eq!(parser.value(), None); // Already consumed
+    /// assert_eq!(parser.value()?, Some("input.txt".to_string()));
+    /// assert_eq!(parser.value()?, None); // Already consumed
     ///
     /// // Option without value
     /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("verbose")));
-    /// assert_eq!(parser.value(), None);
+    /// assert_eq!(parser.value()?, None);
     ///
     /// // Separate argument value: --file myfile.txt
     /// let mut parser = Parser::from_arbitrary(["prog", "--file", "myfile.txt"]).unwrap();
     ///
     /// assert_eq!(parser.forward().unwrap(), Some(Argument::Long("file")));
-    /// assert_eq!(parser.value(), Some("myfile.txt".to_string()));
+    /// assert_eq!(parser.value()?, Some("myfile.txt".to_string()));
     ///
     /// // Short option with separate value: -f myfile.txt
     /// let mut parser = Parser::from_arbitrary(["prog", "-f", "myfile.txt"]).unwrap();
     ///
     /// assert_eq!(parser.forward().unwrap(), Some(Argument::Short('f')));
-    /// assert_eq!(parser.value(), Some("myfile.txt".to_string()));
+    /// assert_eq!(parser.value()?, Some("myfile.txt".to_string()));
     /// ```
-    pub fn value(&mut self) -> Option<String> {
+    pub fn value(&mut self) -> Result<Option<String>> {
         // If all combined short flags have been consumed, treat the state as
         // NotInteresting so we can peek at the next argument as a separate value.
         // This needs to stay a match statement to mantain msrv 1.85
@@ -471,19 +579,30 @@ where
         }
 
         match self.state {
-            State::End | State::Poisoned | State::Combined(..) => None,
+            State::End | State::Poisoned | State::Combined(..) => Ok(None),
             State::LeftoverValue(ref mut value) => {
                 let value = mem::take(value);
                 self.state = State::NotInteresting;
 
-                Some(value)
+                Ok(Some(value))
             }
             State::NotInteresting => {
-                if self.iter.peek()?.as_ref().starts_with('-') {
-                    return None;
-                }
+                let arg = match self.iter.peek() {
+                    Some(v) => {
+                        let arg = v.as_arg()?;
 
-                Some(self.iter.next()?.into().into_owned())
+                        if arg.starts_with('-') {
+                            return Ok(None);
+                        }
+
+                        arg.into_owned()
+                    }
+                    None => return Ok(None),
+                };
+
+                self.iter.next();
+
+                return Ok(Some(arg));
             }
         }
     }
@@ -571,7 +690,7 @@ where
     /// assert!(parser.has_leftover_value());
     ///
     /// // Consume it
-    /// parser.value();
+    /// parser.value()?;
     /// assert!(!parser.has_leftover_value());
     /// ```
     pub const fn has_leftover_value(&self) -> bool {
@@ -645,7 +764,9 @@ pub enum ParsingError {
     /// # Fields
     ///
     /// * `reason` - Human-readable description of what was invalid
-    InvalidSyntax { reason: &'static str },
+    InvalidSyntax {
+        reason: &'static str,
+    },
 
     /// An option value was not consumed after being parsed.
     ///
@@ -656,7 +777,9 @@ pub enum ParsingError {
     /// # Fields
     ///
     /// * `value` - The unconsumed value that was attached to the option
-    UnconsumedValue { value: String },
+    UnconsumedValue {
+        value: String,
+    },
 
     /// An unexpected or unrecognized argument was encountered.
     ///
@@ -675,7 +798,11 @@ pub enum ParsingError {
     /// let error = Argument::Long("unknown").unexpected();
     /// assert_eq!(error.to_string(), "unexpected argument: --unknown");
     /// ```
-    Unexpected { argument: String },
+    Unexpected {
+        argument: String,
+    },
+
+    Utf8Error(Utf8Error),
 }
 
 impl Display for ParsingError {
@@ -685,8 +812,15 @@ impl Display for ParsingError {
             Self::InvalidSyntax { reason } => write!(f, "invalid syntax: {reason}"),
             Self::UnconsumedValue { value } => write!(f, "unconsumed value: {value}"),
             Self::Unexpected { argument } => write!(f, "unexpected argument: {argument}"),
+            Self::Utf8Error(err) => Display::fmt(err, f),
         }
     }
 }
 
 impl Error for ParsingError {}
+
+impl From<Utf8Error> for ParsingError {
+    fn from(err: Utf8Error) -> Self {
+        ParsingError::Utf8Error(err)
+    }
+}

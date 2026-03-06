@@ -24,7 +24,7 @@ fn parser_creation() -> Result<()> {
 fn long_options() -> Result<()> {
     let mut parser = Parser::from_arbitrary(["prog", "--verbose", "--help"])?;
     assert_eq!(parser.forward()?, Some(Long("verbose")));
-    assert_eq!(parser.value(), None);
+    assert_eq!(parser.value()?, None);
     assert_eq!(parser.forward()?, Some(Long("help")));
     assert_eq!(parser.forward()?, None);
     Ok(())
@@ -103,7 +103,7 @@ fn mixed_arguments() -> Result<()> {
     assert_eq!(parser.forward()?, Some(Short('f')));
     assert_eq!(parser.forward()?, Some(Value("file.txt".into())));
     assert_eq!(parser.forward()?, Some(Long("output")));
-    assert_eq!(parser.value(), Some("result.txt".to_string()));
+    assert_eq!(parser.value()?, Some("result.txt".to_string()));
     assert_eq!(parser.forward()?, Some(Value("pos1".into())));
     assert_eq!(parser.forward()?, Some(Value("-x".into())));
     assert_eq!(parser.forward()?, None);
@@ -124,7 +124,7 @@ fn gnu_style_parsing() -> Result<()> {
 fn unicode_support() -> Result<()> {
     let mut parser = Parser::from_arbitrary(["prog", "--файл=документ.txt", "-ñ"])?;
     assert_eq!(parser.forward()?, Some(Long("файл")));
-    assert_eq!(parser.value(), Some("документ.txt".to_string()));
+    assert_eq!(parser.value()?, Some("документ.txt".to_string()));
     assert_eq!(parser.forward()?, Some(Short('ñ')));
     assert_eq!(parser.forward()?, None);
     Ok(())
@@ -135,7 +135,7 @@ fn empty_and_whitespace() -> Result<()> {
     let mut parser = Parser::from_arbitrary(["prog", "", "--msg=hello world"])?;
     assert_eq!(parser.forward()?, Some(Value("".into())));
     assert_eq!(parser.forward()?, Some(Long("msg")));
-    assert_eq!(parser.value(), Some("hello world".to_string()));
+    assert_eq!(parser.value()?, Some("hello world".to_string()));
     assert_eq!(parser.forward()?, None);
     Ok(())
 }
