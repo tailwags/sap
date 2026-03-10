@@ -459,6 +459,7 @@ where
     /// assert_eq!(parser.value()?, Some("test.txt".to_string()));
     ///
     /// assert_eq!(parser.forward().unwrap(), None);
+    /// # Ok::<_,sap::ParsingError>(())
     /// ```
     pub fn forward(&'a mut self) -> Result<Option<Argument<'a>>> {
         loop {
@@ -586,6 +587,7 @@ where
     ///
     /// assert_eq!(parser.forward().unwrap(), Some(Argument::Short('f')));
     /// assert_eq!(parser.value()?, Some("myfile.txt".to_string()));
+    /// # Ok::<_,sap::ParsingError>(())
     /// ```
     pub fn value(&mut self) -> Result<Option<String>> {
         // If all combined short flags have been consumed, treat the state as
@@ -712,6 +714,7 @@ where
     /// // Consume it
     /// parser.value()?;
     /// assert!(!parser.has_leftover_value());
+    /// # Ok::<_,sap::ParsingError>(())
     /// ```
     pub const fn has_leftover_value(&self) -> bool {
         matches!(self.state, State::LeftoverValue(_))
