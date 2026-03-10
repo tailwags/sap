@@ -1,5 +1,6 @@
 #![warn(clippy::pedantic)]
 #![warn(clippy::complexity)]
+#![deny(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
 //! # Sap - a Small Argument Parser
 //!
@@ -252,6 +253,11 @@ impl Parser<env::Args> {
     }
 }
 
+/// Trait for types that can be used as command-line arguments.
+///
+/// This is a sealed trait implemented for common string-like types:
+/// `String`, `&str`, `&CStr`, `CString`, and (with the `std` feature)
+/// `OsStr` and `OsString`. It cannot be implemented outside this crate.
 pub trait ArgLike: sealed::Sealed {
     /// Converts this value into an argument string.
     ///
@@ -779,6 +785,7 @@ pub enum ParsingError {
     ///
     /// * `reason` - Human-readable description of what was invalid
     InvalidSyntax {
+        /// Human-readable description of what was invalid.
         reason: &'static str,
     },
 
@@ -792,6 +799,7 @@ pub enum ParsingError {
     ///
     /// * `value` - The unconsumed value that was attached to the option
     UnconsumedValue {
+        /// The unconsumed value that was attached to the option.
         value: String,
     },
 
@@ -813,9 +821,14 @@ pub enum ParsingError {
     /// assert_eq!(error.to_string(), "unexpected argument: --unknown");
     /// ```
     Unexpected {
+        /// The formatted argument string (e.g., `--unknown`, `-x`, `file.txt`).
         argument: String,
     },
 
+    /// A UTF-8 decoding error from converting an argument to a string.
+    ///
+    /// Propagated from [`ArgLike`] implementations when an argument contains
+    /// invalid UTF-8 sequences.
     Utf8Error(Utf8Error),
 }
 
