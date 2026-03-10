@@ -25,6 +25,9 @@ jobs:
       - name: Run tests
         run: cargo nextest run --no-fail-fast
 
+      - name: Run doc tests
+        run: cargo test --doc --no-fail-fast
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -49,6 +52,9 @@ jobs:
       - name: Run tests
         run: cargo +nightly miri nextest run --no-fail-fast
 
+      - name: Run doc tests
+        run: cargo +nightly miri test --doc --no-fail-fast
+
   msrv:
     name: MSRV check (1.85)
     runs-on: ubuntu-latest
@@ -66,3 +72,6 @@ jobs:
 
       - name: Check tests compile with MSRV
         run: cargo +1.85 nextest run --no-fail-fast
+
+      - name: Run doc tests
+        run: cargo +1.85 test --doc --no-fail-fast
