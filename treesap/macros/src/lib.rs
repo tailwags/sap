@@ -1,7 +1,19 @@
+//! Internal proc-macro crate powering [`treesap`]'s `#[derive(Parser)]`.
+//!
+//! Do not depend on this crate directly; use `treesap` instead.
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DataStruct, DeriveInput, parse_macro_input};
 
+/// Derives a `parse() -> sap::Result<Self>` implementation for a struct.
+///
+/// Each named field in the struct becomes a long flag that matches the field
+/// name exactly. Currently only `bool` fields are supported; all matched flags
+/// are unconditionally set to `true`.
+///
+/// `#[arg(…)]` and `#[command(…)]` attributes are accepted but not yet acted
+/// upon.
 #[proc_macro_derive(Parser, attributes(arg, command))]
 pub fn derive_parser(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -36,33 +48,12 @@ pub fn derive_parser(input: TokenStream) -> TokenStream {
                     const HELP: &str = "";
 
                     pub fn parse() -> ::sap::Result<Self> {
-                        use std::io::Write as _;
-
                         let mut arg_parser = sap::Parser::from_env()?;
 
                         #(#field_declarations)*
 
                         while let Some(arg) = arg_parser.forward()? {
-
                             match arg {
-                                // Long("version") => {
-                                //     stdout
-                                //         .write_all(
-                                //             "wc (puppyutils) 0.0.1\nLicensed under the European Union Public Licence (EUPL) <https://eupl.eu/>\n"
-                                //                 .as_bytes(),
-                                //         )?;
-                                //     stdout.flush()?;
-                                //     std::process::exit(0);
-                                // }
-                                // Long("help") => {
-                                //     stdout
-                                //         .write_all(
-                                //             "Usage: wc [OPTION]... [FILE]...\nPrint newline, word, and byte counts for each FILE.  A word is a nonempty \nsequence of non white space delimited by white space characters or by start \nor end of input.\n\n  -c, --bytes    print the byte counts\n  -m, --chars    print the character counts\n  -l, --lines    print the newline counts\n  -w, --words    print the word counts\n      --help     display this help and exit\n      --version  output version information and exit\n\nWith no FILE, or when FILE is -, read standard input.\n"
-                                //                 .as_bytes(),
-                                //         )?;
-                                //     stdout.flush()?;
-                                //     std::process::exit(0);
-                                // }
                                 #(#field_setters),*
                                 arg => return Err(arg.unexpected()),
                             }

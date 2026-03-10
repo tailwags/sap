@@ -2,15 +2,22 @@
 members = ["treesap", "treesap/macros"]
 exclude = ["fuzz"]
 
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.85"
+authors = ["Matilde Morrone <contact@matilde.pet>"]
+repository = "https://github.com/tailwags/sap"
+
 [package]
 name = "sap"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.85"
+version = "0.2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 description = "A small, simple and sweet argument parser for Rust"
-license = "Apache-2.0"
-authors = ["Matilde Morrone <contact@morrone.dev>"]
-repository = "https://github.com/tailwags/sap"
 readme = "README.md"
 documentation = "https://docs.rs/sap"
 include = ["src/**/*.rs", "README.md", "LICENSE"]
@@ -26,6 +33,6 @@ strip = true
 panic = "abort"
 
 [dev-dependencies]
-anyhow = "1.0.101"
+anyhow = "1.0.102"
 bitflags = "2.11.0"
 itoa = "1.0.17"

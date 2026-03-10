@@ -6,24 +6,27 @@
 //!
 //! A minimal, zero-dependency Unix command-line argument parser for Rust.
 //!
-//! Sap provides full control over argument parsing with an iterator-based API that handles
-//! GNU-style options while maintaining simplicity and flexibility.
+//! Sap exposes an iterator-based API that handles GNU-style options and gives
+//! you full control over how each argument is consumed.
 //!
 //! ## Features
 //!
-//! - **GNU-style option parsing**: Support for short (`-a`), long (`--verbose`), and combined options (`-abc`)
-//! - **Flexible value handling**: Options with values via `--name=value` or separate arguments
-//! - **POSIX compliance**: Handle `--` separator and `-` (stdin) arguments correctly
-//! - **Zero dependencies**: Pure Rust implementation with no external crates
-//! - **Iterator-based**: Works with any `Iterator<Item = Into<String>>` for maximum flexibility
-//! - **Comprehensive error handling**: Descriptive error messages for invalid input
+//! - **GNU-style option parsing**: short (`-a`), long (`--verbose`), and combined options (`-abc`)
+//! - **Value handling**: options with values via `--name=value` or as a separate following argument
+//! - **POSIX compliance**: `--` separator and `-` (stdin) are handled correctly
+//! - **Zero dependencies**: no external crates
+//! - **Iterator-based**: works with any iterator yielding [`ArgLike`] items (`&str`, `String`, `OsStr`, etc.),
+//!   so you can parse args from the environment, a `Vec`, or a test fixture without conversion
+//! - **Error handling**: errors carry the offending argument and the parser transitions to a defined poisoned state
+//!
+//! For a `#[derive(Parser)]` interface built on top of this crate, see the
+//! companion crate [`treesap`](https://crates.io/crates/treesap).
 //!
 //! ## Example
 //!
 //! ```rust
 //! use sap::{Parser, Argument};
 //!
-//! // Parse from string arrays directly - no need to convert to String first!
 //! let mut parser = Parser::from_arbitrary(["myprogram", "-v", "--file=input.txt"]).unwrap();
 //!
 //! while let Some(arg) = parser.forward().unwrap() {
@@ -368,15 +371,12 @@ where
     I: Iterator<Item = V>,
     V: ArgLike,
 {
-    /// Creates a `Parser` from any iterator that yields items convertible to `String`.
+    /// Creates a `Parser` from any iterator that yields [`ArgLike`] items.
     ///
-    /// This method provides maximum flexibility for parsing argument lists. You can pass
-    /// string arrays, vectors, or any other iterable collection of string-like items.
-    /// This is particularly useful for testing and when arguments come from sources
-    /// other than the command line.
-    ///
-    /// The first item from the iterator is treated as the program name and can be
-    /// accessed via [`Parser::name`]. All subsequent items are parsed as arguments.
+    /// The first item is consumed as the program name (accessible via [`Parser::name`]).
+    /// All subsequent items are parsed as arguments. Accepts string arrays, `Vec<String>`,
+    /// or any other iterable of string-like values, which makes this the natural choice
+    /// for tests and for parsing argument lists that don't come from the environment.
     ///
     /// # Errors
     ///
@@ -719,15 +719,14 @@ where
 
     /// Consumes the parser and returns the underlying iterator.
     ///
-    /// This allows access to any remaining, unparsed arguments. Note that the
-    /// iterator's state reflects the current parsing position.
+    /// This allows access to any remaining, unparsed arguments. The iterator's
+    /// position reflects where parsing stopped.
     ///
     /// # Error Recovery
     ///
-    /// This method is particularly useful for recovering unparsed arguments after
-    /// a parsing error occurs. When the parser enters a poisoned state due to an error,
-    /// the underlying iterator remains intact and can be retrieved to access the
-    /// remaining arguments that were not yet consumed.
+    /// When the parser enters a poisoned state, the underlying iterator is left
+    /// intact. Call `into_inner` to retrieve it and inspect or reprocess the
+    /// arguments that were not yet consumed.
     ///
     /// # Examples
     ///

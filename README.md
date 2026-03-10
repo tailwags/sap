@@ -6,27 +6,34 @@ _A small, simple and sweet argument parser for Rust_
 [![Documentation](https://docs.rs/sap/badge.svg)](https://docs.rs/sap)
 [![License](https://img.shields.io/crates/l/sap.svg)](LICENSE)
 
-Sap is a minimal, zero-dependency Unix command-line argument parser for Rust. It provides full control over argument parsing with an iterator-based API that handles GNU-style options while maintaining simplicity and flexibility.
+Sap is a minimal, zero-dependency Unix command-line argument parser for Rust. It
+exposes an iterator-based API that handles GNU-style options and gives you full
+control over how each argument is consumed.
 
-## ✨ Features
+## Features
 
-- **GNU-style option parsing**: Support for short (`-a`), long (`--verbose`), and combined options (`-abc`)
-- **Flexible value handling**: Options with values via `--name=value` or separate arguments
-- **POSIX compliance**: Handle `--` separator and `-` (stdin) arguments correctly
-- **Zero dependencies**: Pure Rust implementation with no external crates
-- **Iterator-based**: Works with any iterator yielding `ArgLike` items (`&str`, `String`, `OsStr`, etc.) for maximum flexibility
-- **Comprehensive error handling**: Descriptive error messages for invalid input
+- **GNU-style option parsing**: short (`-a`), long (`--verbose`), and combined
+  options (`-abc`)
+- **Value handling**: options with values via `--name=value` or as a separate
+  following argument
+- **POSIX compliance**: `--` separator and `-` (stdin) are handled correctly
+- **Zero dependencies**: no external crates
+- **Iterator-based**: works with any iterator yielding `ArgLike` items (`&str`,
+  `String`, `OsStr`, etc.), so you can parse args from the environment, a `Vec`,
+  or a test fixture without conversion
+- **Error handling**: errors carry the offending argument and the parser
+  transitions to a defined poisoned state
 
-## 🚀 Quick Start
+## Quick Start
 
 Add Sap to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sap = "0.1.0"
+sap = "0.2.0"
 ```
 
-## 📖 Usage
+## Usage
 
 ### Basic Example
 
@@ -73,18 +80,20 @@ while let Some(arg) = parser.forward().unwrap() {
 }
 ```
 
-## 🎯 Argument Types
+## Argument Types
 
 Sap recognizes four types of arguments:
 
-- **`Argument::Short(char)`** - Short options like `-v`, `-x`, and combined ones like `-abc`
-- **`Argument::Long(&str)`** - Long options like `--verbose`, `--file`, including values like `--file=foo.txt`
+- **`Argument::Short(char)`** - Short options like `-v`, `-x`, and combined ones
+  like `-abc`
+- **`Argument::Long(&str)`** - Long options like `--verbose`, `--file`,
+  including values like `--file=foo.txt`
 - **`Argument::Value(Cow<str>)`** - Positional arguments and operands
 - **`Argument::Stdio`** - The special `-` argument (stdin/stdout)
 
-## 📚 Complete Example
+## Complete Example
 
-Here's a more comprehensive example showing a typical CLI application:
+Here's an example showing a typical CLI application:
 
 ```rust
 use sap::{Parser, Argument, Result};
@@ -144,13 +153,58 @@ fn print_help(program_name: &str) {
 }
 ```
 
-## 🔍 Real-World Examples
+## Real-World Examples
 
-For comprehensive examples of Sap in action, check out [**puppyutils**](https://github.com/puppyutils/puppyutils) - a collection of Unix utilities reimplemented in Rust. Sap was originally created as the argument parser for this project, so you'll find extensive real-world usage patterns.
+[**puppyutils**](https://github.com/puppyutils/puppyutils) is a collection of
+Unix utilities written in Rust that uses sap as its argument parser. Sap was
+originally built for that project, so the source is a good reference for real
+usage.
 
-## 🤝 Acknowledgments
+## treesap: derive-macro interface
 
-Special thanks to [Esther](https://github.com/esther-ff) who wrote the original parser design for this library <3
+[treesap](https://crates.io/crates/treesap) is a companion crate that lets you
+declare your CLI arguments as a plain Rust struct instead of writing a manual
+parsing loop. It is built on top of `sap` and exposes a `#[derive(Parser)]`
+macro that generates a `parse()` method for you.
+
+> **treesap is a work in progress.** Not all field types and attributes are
+> implemented yet. See the [treesap README](treesap/README.md) for the current
+> status.
+
+```toml
+[dependencies]
+sap = "0.2.0"
+treesap = "0.1.0"
+```
+
+```rust
+use treesap::Parser;
+
+#[derive(Debug, Parser)]
+struct Args {
+    verbose: bool,
+    dry_run: bool,
+}
+
+fn main() -> sap::Result<()> {
+    let args = Args::parse()?;
+
+    if args.verbose {
+        println!("verbose mode enabled");
+    }
+
+    if args.dry_run {
+        println!("dry-run: no changes will be made");
+    }
+
+    Ok(())
+}
+```
+
+## Acknowledgments
+
+Special thanks to [Esther](https://github.com/esther-ff) who wrote the original
+parser design for this library <3
 
 ## License
 
