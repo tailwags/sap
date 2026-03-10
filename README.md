@@ -14,7 +14,7 @@ Sap is a minimal, zero-dependency Unix command-line argument parser for Rust. It
 - **Flexible value handling**: Options with values via `--name=value` or separate arguments
 - **POSIX compliance**: Handle `--` separator and `-` (stdin) arguments correctly
 - **Zero dependencies**: Pure Rust implementation with no external crates
-- **Iterator-based**: Works with any `Iterator<Item = Into<String>>` for maximum flexibility
+- **Iterator-based**: Works with any iterator yielding `ArgLike` items (`&str`, `String`, `OsStr`, etc.) for maximum flexibility
 - **Comprehensive error handling**: Descriptive error messages for invalid input
 
 ## 🚀 Quick Start
@@ -23,7 +23,7 @@ Add Sap to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sap = "0.0.5"
+sap = "0.1.0"
 ```
 
 ## 📖 Usage
@@ -118,7 +118,7 @@ fn main() -> Result<()> {
                 input_files.push("-".to_string());
             }
             unknown => {
-                eprintln!("Error: {}", unknown.into_error(parser.value()?));
+                eprintln!("Error: {}", unknown.unexpected());
                 std::process::exit(1);
             }
         }
