@@ -6,7 +6,7 @@ exclude = ["fuzz"]
 edition = "2024"
 license = "Apache-2.0"
 rust-version = "1.85"
-authors = ["Matilde Morrone <contact@matilde.pet>"]
+authors = ["Matilde Morrone <contact@rosymati.com>"]
 repository = "https://github.com/tailwags/sap"
 
 [package]
